@@ -1,3 +1,5 @@
+mod common;
+
 pub struct TrainingConfig<P: AsRef<std::path::Path>> {
     pub model_path: P,
     pub num_steps: usize,
