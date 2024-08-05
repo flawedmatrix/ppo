@@ -68,6 +68,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b3d1d046238990b9cf5bcde22a3fb3584ee5cf65fb2765f454ed428c7a0063da"
 
 [[package]]
+name = "approx"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f2a05fd1bd10b2527e20a2cd32d8873d115b8b39fe219ee25f42a8aca6ba278"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "arbitrary"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1869,6 +1878,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "linfa-linalg"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56e7562b41c8876d3367897067013bb2884cc78e6893f092ecd26b305176ac82"
+dependencies = [
+ "ndarray",
+ "num-traits",
+ "rand",
+ "thiserror",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2037,6 +2058,7 @@ version = "0.15.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "adb12d4e967ec485a5f71c6311fe28158e9d6f4bc4a447b474184d0f91a8fa32"
 dependencies = [
+ "approx",
  "matrixmultiply",
  "num-complex",
  "num-integer",
@@ -2358,6 +2380,7 @@ name = "ppo"
 version = "0.1.0"
 dependencies = [
  "burn",
+ "linfa-linalg",
  "ndarray",
  "rand",
  "rand_distr",

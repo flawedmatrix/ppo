@@ -14,3 +14,4 @@ burn = { version = "0.14", features = [
 ndarray = "0.15"
 rand = "0.8.5"
 rand_distr = "0.4.3"
+linfa-linalg = "0.1.0"
