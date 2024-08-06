@@ -104,7 +104,7 @@ where
 
                 final_scores.push(-5.0);
                 final_step_nums.push(env.step_num());
-                *env = self.init_state.clone();
+                *env = self.init_state;
             }
 
             next_states.push(env.as_vector());
@@ -166,11 +166,7 @@ mod tests {
         }
 
         fn is_done(&self) -> bool {
-            if self.0 == 3 {
-                true
-            } else {
-                false
-            }
+            self.0 == 3
         }
 
         fn do_action(&mut self, action_id: usize) {
