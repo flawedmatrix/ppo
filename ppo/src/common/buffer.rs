@@ -29,12 +29,12 @@ pub struct ExperienceBuffer<const NUM_ENVS: usize, const OBS_SIZE: usize> {
     lambda: f32, // advantage estimation discounting factor (lambda in the paper)
 
     // This storage allows only a number of entries up to a certain capacity.
-    obs: Array3<f32>,       // [capacity, NUM_ENVS, OBS_SIZE]
-    rewards: Array2<f32>,   // [capacity, NUM_ENVS]
-    actions: Array2<usize>, // [capacity, NUM_ENVS]
-    values: Array2<f32>,    // [capacity, NUM_ENVS]
-    dones: Array2<f32>,     // [capacity, NUM_ENVS]
-    neglogps: Array2<f32>,  // [capacity, NUM_ENVS]
+    obs: Array3<f32>,      // [capacity, NUM_ENVS, OBS_SIZE]
+    rewards: Array2<f32>,  // [capacity, NUM_ENVS]
+    actions: Array2<i32>,  // [capacity, NUM_ENVS]
+    values: Array2<f32>,   // [capacity, NUM_ENVS]
+    dones: Array2<f32>,    // [capacity, NUM_ENVS]
+    neglogps: Array2<f32>, // [capacity, NUM_ENVS]
 }
 
 impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OBS_SIZE> {
@@ -82,7 +82,7 @@ impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OB
         &mut self,
         obs: Tensor<B, 2>, // [NUM_ENVS, OBS_SIZE]
         rewards: Box<[f32; NUM_ENVS]>,
-        actions: Box<[usize; NUM_ENVS]>,
+        actions: Box<[i32; NUM_ENVS]>,
         vals: Tensor<B, 1>, // [NUM_ENVS]
         dones: Box<[bool; NUM_ENVS]>,
         neglogps: Tensor<B, 1>,
@@ -144,36 +144,39 @@ impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OB
     /// Actions - Int [num_steps]
     /// Values - Float [num_steps]
     /// Neglogps - Float [num_steps]
-    pub fn training_views<B: Backend>(
+    pub fn training_views(
         &self,
-    ) -> (Tensor<B, 2>, Tensor<B, 1, Int>, Tensor<B, 1>, Tensor<B, 1>) {
+    ) -> (
+        ArrayView2<f32>,
+        ArrayView1<i32>,
+        ArrayView1<f32>,
+        ArrayView1<f32>,
+    ) {
         let len = self.len();
         let num_steps = len * NUM_ENVS;
 
-        let device = Default::default();
+        let obs = self
+            .obs
+            .slice(s![0..len, .., ..])
+            .into_shape((num_steps, OBS_SIZE))
+            .unwrap();
+        let actions = self
+            .actions
+            .slice(s![0..len, ..])
+            .into_shape((num_steps,))
+            .unwrap();
+        let values = self
+            .values
+            .slice(s![0..len, ..])
+            .into_shape((num_steps,))
+            .unwrap();
+        let neglogps = self
+            .neglogps
+            .slice(s![0..len, ..])
+            .into_shape((num_steps,))
+            .unwrap();
 
-        let obs_tensor = Tensor::<B, 1>::from_floats(
-            self.obs.slice(s![0..len, .., ..]).as_slice().unwrap(),
-            &device,
-        )
-        .reshape([num_steps, OBS_SIZE]);
-
-        let actions_tensor = Tensor::<B, 1, Int>::from_ints(
-            self.actions.slice(s![0..len, ..]).as_slice().unwrap(),
-            &device,
-        );
-
-        let values_tensor = Tensor::<B, 1>::from_floats(
-            self.values.slice(s![0..len, ..]).as_slice().unwrap(),
-            &device,
-        );
-
-        let neglogps_tensor = Tensor::<B, 1>::from_floats(
-            self.neglogps.slice(s![0..len, ..]).as_slice().unwrap(),
-            &device,
-        );
-
-        (obs_tensor, actions_tensor, values_tensor, neglogps_tensor)
+        (obs, actions, values, neglogps)
     }
 
     /// Calculates the estimated returns for each step in the experience buffer
@@ -190,8 +193,9 @@ impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OB
         &self,
         last_values: Tensor<B, 1>, // [NUM_ENVS]
         last_dones: Box<[bool; NUM_ENVS]>,
-    ) -> Tensor<B, 1> {
+    ) -> Array1<f32> {
         let len = self.len();
+        let num_steps = len * NUM_ENVS;
 
         assert_eq!(last_values.dims(), [NUM_ENVS]);
 
@@ -222,9 +226,7 @@ impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OB
         }
         let res = advs + &self.values;
 
-        let device = Default::default();
-
-        Tensor::<B, 1>::from_floats(res.slice(s![0..len, ..]).as_slice().unwrap(), &device)
+        res.into_shape((num_steps,)).unwrap()
     }
 }
 
@@ -249,33 +251,24 @@ mod tests {
             Box::new([false, false]),
             Tensor::from_floats([20.0, 21.0], &device),
         );
-        let (obs, actions, values, neglogps) = exp_buf.training_views::<Wgpu>();
+        let (obs, actions, values, neglogps) = exp_buf.training_views();
 
-        assert_eq!(obs.dims(), [2, 3]);
+        assert_eq!(obs.shape(), [2, 3]);
 
-        assert_eq!(
-            obs.to_data().to_vec::<f32>().unwrap(),
-            vec![
-                0.0, 1.0, 2.0, // First row
-                1.0, 2.0, 3.0 // Second row
-            ]
-        );
+        assert_eq!(obs, array![[0.0, 1.0, 2.0], [1.0, 2.0, 3.0]]);
 
-        assert_eq!(actions.dims(), [2]);
-        assert_eq!(actions.to_data().to_vec::<i32>().unwrap(), vec![1, 2]);
+        assert_eq!(actions.shape(), [2]);
+        assert_eq!(actions, array![1, 2]);
 
-        assert_eq!(values.dims(), [2]);
-        assert_eq!(values.to_data().to_vec::<f32>().unwrap(), vec![3.0, 6.0]);
+        assert_eq!(values.shape(), [2]);
+        assert_eq!(values, array![3., 6.]);
 
-        assert_eq!(neglogps.dims(), [2]);
-        assert_eq!(
-            neglogps.to_data().to_vec::<f32>().unwrap(),
-            vec![20.0, 21.0]
-        );
+        assert_eq!(neglogps.shape(), [2]);
+        assert_eq!(neglogps, array![20.0, 21.0]);
 
-        assert_eq!(obs.dims()[0], actions.dims()[0]);
-        assert_eq!(actions.dims()[0], values.dims()[0]);
-        assert_eq!(values.dims()[0], neglogps.dims()[0]);
+        assert_eq!(obs.shape()[0], actions.shape()[0]);
+        assert_eq!(actions.shape()[0], values.shape()[0]);
+        assert_eq!(values.shape()[0], neglogps.shape()[0]);
     }
 
     #[test]
@@ -315,43 +308,34 @@ mod tests {
             Tensor::from_floats([22.0, 23.0], &device),
         );
 
-        let (obs, actions, values, neglogps) = exp_buf.training_views::<Wgpu>();
+        let (obs, actions, values, neglogps) = exp_buf.training_views();
 
-        assert_eq!(obs.dims(), [6, 3]);
+        assert_eq!(obs.shape(), [6, 3]);
 
         assert_eq!(
-            obs.to_data().to_vec::<f32>().unwrap(),
-            vec![
-                0.0, 1.0, 2.0, // First row
-                1.0, 2.0, 3.0, // Second row
-                2.0, 3.0, 4.0, // Third row
-                3.0, 4.0, 5.0, // Fourth row
-                4.0, 5.0, 6.0, // Fifth row
-                5.0, 6.0, 7.0 // Sixth row
+            obs,
+            array![
+                [0., 1., 2.],
+                [1., 2., 3.],
+                [2., 3., 4.],
+                [3., 4., 5.],
+                [4., 5., 6.],
+                [5., 6., 7.],
             ]
         );
 
-        assert_eq!(actions.dims(), [6]);
-        assert_eq!(
-            actions.to_data().to_vec::<i32>().unwrap(),
-            vec![1, 2, 2, 3, 3, 4]
-        );
+        assert_eq!(actions.shape(), [6]);
+        assert_eq!(actions, array![1, 2, 2, 3, 3, 4]);
 
-        assert_eq!(values.dims(), [6]);
-        assert_eq!(
-            values.to_data().to_vec::<f32>().unwrap(),
-            vec![3.0, 6.0, 6.0, 9.0, 9.0, 12.0]
-        );
+        assert_eq!(values.shape(), [6]);
+        assert_eq!(values, array![3.0, 6.0, 6.0, 9.0, 9.0, 12.0]);
 
-        assert_eq!(neglogps.dims(), [6]);
-        assert_eq!(
-            neglogps.to_data().to_vec::<f32>().unwrap(),
-            vec![20.0, 21.0, 21.0, 22.0, 22.0, 23.0]
-        );
+        assert_eq!(neglogps.shape(), [6]);
+        assert_eq!(neglogps, array![20.0, 21.0, 21.0, 22.0, 22.0, 23.0]);
 
-        assert_eq!(obs.dims()[0], actions.dims()[0]);
-        assert_eq!(actions.dims()[0], values.dims()[0]);
-        assert_eq!(values.dims()[0], neglogps.dims()[0]);
+        assert_eq!(obs.shape()[0], actions.shape()[0]);
+        assert_eq!(actions.shape()[0], values.shape()[0]);
+        assert_eq!(values.shape()[0], neglogps.shape()[0]);
     }
 
     #[test]
@@ -415,41 +399,32 @@ mod tests {
             Tensor::from_floats([24.0, 25.0], &device),
         );
 
-        let (obs, actions, values, neglogps) = exp_buf.training_views::<Wgpu>();
+        let (obs, actions, values, neglogps) = exp_buf.training_views();
 
         assert_eq!(
-            obs.to_data().to_vec::<f32>().unwrap(),
-            vec![
-                5.0, 6.0, 7.0, // First row
-                6.0, 7.0, 8.0, // Second row
-                6.0, 7.0, 8.0, // Third row
-                7.0, 8.0, 9.0, // Fourth row
-                4.0, 5.0, 6.0, // Fifth row
-                5.0, 6.0, 7.0 // Sixth row
+            obs,
+            array![
+                [5.0, 6.0, 7.0],
+                [6.0, 7.0, 8.0],
+                [6.0, 7.0, 8.0],
+                [7.0, 8.0, 9.0],
+                [4.0, 5.0, 6.0],
+                [5.0, 6.0, 7.0],
             ]
         );
 
-        assert_eq!(actions.dims(), [6]);
-        assert_eq!(
-            actions.to_data().to_vec::<i32>().unwrap(),
-            vec![4, 5, 5, 6, 3, 4]
-        );
+        assert_eq!(actions.shape(), [6]);
+        assert_eq!(actions, array![4, 5, 5, 6, 3, 4]);
 
-        assert_eq!(values.dims(), [6]);
-        assert_eq!(
-            values.to_data().to_vec::<f32>().unwrap(),
-            vec![12.0, 15.0, 15.0, 18.0, 9.0, 12.0]
-        );
+        assert_eq!(values.shape(), [6]);
+        assert_eq!(values, array![12.0, 15.0, 15.0, 18.0, 9.0, 12.0]);
 
-        assert_eq!(neglogps.dims(), [6]);
-        assert_eq!(
-            neglogps.to_data().to_vec::<f32>().unwrap(),
-            vec![23.0, 24.0, 24.0, 25.0, 22.0, 23.0]
-        );
+        assert_eq!(neglogps.shape(), [6]);
+        assert_eq!(neglogps, array![23.0, 24.0, 24.0, 25.0, 22.0, 23.0]);
 
-        assert_eq!(obs.dims()[0], actions.dims()[0]);
-        assert_eq!(actions.dims()[0], values.dims()[0]);
-        assert_eq!(values.dims()[0], neglogps.dims()[0]);
+        assert_eq!(obs.shape()[0], actions.shape()[0]);
+        assert_eq!(actions.shape()[0], values.shape()[0]);
+        assert_eq!(values.shape()[0], neglogps.shape()[0]);
     }
 
     #[test]
@@ -493,7 +468,7 @@ mod tests {
             Tensor::from_floats([12.0, 15.0], &device),
             Box::new([true, true]),
         );
-        let ret = returns.to_data().to_vec::<f32>().unwrap();
+        let ret = returns.as_slice().unwrap();
         print!("ret {ret:?}");
         assert!(ret[0] > 3.708 && ret[0] < 3.7081);
         assert!(ret[1] > 6.821 && ret[1] < 6.822);
@@ -502,7 +477,7 @@ mod tests {
         assert!(ret[4] > 2.09 && ret[4] < 2.11);
         assert!(ret[5] > 3.09 && ret[5] < 3.11);
 
-        let (obs, _, _, _) = exp_buf.training_views::<Wgpu>();
-        assert_eq!(obs.dims()[0], returns.dims()[0]);
+        let (obs, _, _, _) = exp_buf.training_views();
+        assert_eq!(obs.shape()[0], returns.shape()[0]);
     }
 }
