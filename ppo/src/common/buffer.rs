@@ -1,5 +1,5 @@
 use burn::prelude::*;
-use ndarray::{prelude::*, Array, Axis, RemoveAxis};
+use ndarray::{prelude::*, RemoveAxis};
 
 trait IndexView<T> {
     fn index_view(&mut self, idx: usize) -> &mut [T];
@@ -144,14 +144,7 @@ impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OB
     /// Actions - Int [num_steps]
     /// Values - Float [num_steps]
     /// Neglogps - Float [num_steps]
-    pub fn training_views(
-        &self,
-    ) -> (
-        ArrayView2<f32>,
-        ArrayView1<i32>,
-        ArrayView1<f32>,
-        ArrayView1<f32>,
-    ) {
+    pub fn training_views(&self) -> (Array2<f32>, Array1<i32>, Array1<f32>, Array1<f32>) {
         let len = self.len();
         let num_steps = len * NUM_ENVS;
 
@@ -159,22 +152,26 @@ impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OB
             .obs
             .slice(s![0..len, .., ..])
             .into_shape((num_steps, OBS_SIZE))
-            .unwrap();
+            .unwrap()
+            .into_owned();
         let actions = self
             .actions
             .slice(s![0..len, ..])
             .into_shape((num_steps,))
-            .unwrap();
+            .unwrap()
+            .into_owned();
         let values = self
             .values
             .slice(s![0..len, ..])
             .into_shape((num_steps,))
-            .unwrap();
+            .unwrap()
+            .into_owned();
         let neglogps = self
             .neglogps
             .slice(s![0..len, ..])
             .into_shape((num_steps,))
-            .unwrap();
+            .unwrap()
+            .into_owned();
 
         (obs, actions, values, neglogps)
     }
@@ -224,7 +221,7 @@ impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OB
             lastgaelam = delta + &nextnonterminal * &lastgaelam * (self.gamma * self.lambda);
             advs.row_mut(t).assign(&lastgaelam);
         }
-        let res = advs + &self.values;
+        let res = advs + self.values.slice(s![0..len, ..]);
 
         res.into_shape((num_steps,)).unwrap()
     }
@@ -266,9 +263,11 @@ mod tests {
         assert_eq!(neglogps.shape(), [2]);
         assert_eq!(neglogps, array![20.0, 21.0]);
 
-        assert_eq!(obs.shape()[0], actions.shape()[0]);
-        assert_eq!(actions.shape()[0], values.shape()[0]);
-        assert_eq!(values.shape()[0], neglogps.shape()[0]);
+        let returns = exp_buf.returns::<Wgpu>(
+            Tensor::from_floats([12.0, 15.0], &device),
+            Box::new([true, true]),
+        );
+        assert_eq!(returns.shape(), [2]);
     }
 
     #[test]
@@ -332,10 +331,6 @@ mod tests {
 
         assert_eq!(neglogps.shape(), [6]);
         assert_eq!(neglogps, array![20.0, 21.0, 21.0, 22.0, 22.0, 23.0]);
-
-        assert_eq!(obs.shape()[0], actions.shape()[0]);
-        assert_eq!(actions.shape()[0], values.shape()[0]);
-        assert_eq!(values.shape()[0], neglogps.shape()[0]);
     }
 
     #[test]
@@ -422,9 +417,11 @@ mod tests {
         assert_eq!(neglogps.shape(), [6]);
         assert_eq!(neglogps, array![23.0, 24.0, 24.0, 25.0, 22.0, 23.0]);
 
-        assert_eq!(obs.shape()[0], actions.shape()[0]);
-        assert_eq!(actions.shape()[0], values.shape()[0]);
-        assert_eq!(values.shape()[0], neglogps.shape()[0]);
+        let returns = exp_buf.returns::<Wgpu>(
+            Tensor::from_floats([12.0, 15.0], &device),
+            Box::new([true, true]),
+        );
+        assert_eq!(returns.shape(), [6]);
     }
 
     #[test]

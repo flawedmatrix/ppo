@@ -2,19 +2,19 @@ use burn::{
     data::{dataloader::batcher::Batcher, dataset::Dataset},
     prelude::*,
 };
-use ndarray::{s, ArrayView1, ArrayView2};
+use ndarray::{s, Array1, Array2};
 
-/// A temporary container for training views. The views should live for as long
-/// as the Experience Buffer persists.
-pub struct TrainingView<'a> {
-    observations: ArrayView2<'a, f32>,
-    actions: ArrayView1<'a, i32>,
-    values: ArrayView1<'a, f32>,
-    neglogps: ArrayView1<'a, f32>,
-    returns: ArrayView1<'a, f32>,
+/// A temporary container for training views.
+pub struct TrainingView {
+    pub observations: Array2<f32>,
+    pub actions: Array1<i32>,
+    pub values: Array1<f32>,
+    pub neglogps: Array1<f32>,
+    pub returns: Array1<f32>,
 }
 
-pub struct Experience {
+#[derive(Clone, Debug)]
+struct Experience {
     observation: Vec<f32>,
     action: i32,
     value: f32,
@@ -22,7 +22,7 @@ pub struct Experience {
     ret: f32,
 }
 
-impl<'a> Dataset<Experience> for TrainingView<'a> {
+impl Dataset<Experience> for TrainingView {
     fn get(&self, index: usize) -> Option<Experience> {
         if index > self.len() {
             return None;
@@ -58,6 +58,8 @@ impl<B: Backend> ExperienceBatcher<B> {
         Self { device }
     }
 }
+
+#[derive(Clone, Debug)]
 pub struct ExperienceBatch<B: Backend> {
     pub observations: Tensor<B, 2>,
     pub actions: Tensor<B, 1, Int>,
@@ -91,6 +93,56 @@ impl<B: Backend> Batcher<Experience, ExperienceBatch<B>> for ExperienceBatcher<B
             values,
             neglogps,
             returns,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use burn::{backend::Wgpu, data::dataloader::DataLoaderBuilder};
+
+    use crate::common::ExperienceBuffer;
+
+    use super::*;
+
+    #[test]
+    fn batcher_sanity() {
+        let mut exp_buf = ExperienceBuffer::<2, 3>::new(3);
+
+        let device = Default::default();
+
+        let obs1 = Tensor::from_floats([[0.0, 1.0, 2.0], [1.0, 2.0, 3.0]], &device);
+        exp_buf.add_experience::<Wgpu>(
+            obs1,
+            Box::new([0.1, 1.1]),
+            Box::new([1, 2]),
+            Tensor::from_floats([3.0, 6.0], &device),
+            Box::new([false, false]),
+            Tensor::from_floats([20.0, 21.0], &device),
+        );
+
+        let (observations, actions, values, neglogps) = exp_buf.training_views();
+
+        let returns = exp_buf.returns::<Wgpu>(
+            Tensor::from_floats([12.0, 15.0], &device),
+            Box::new([true, true]),
+        );
+
+        let training_view = TrainingView {
+            observations,
+            actions,
+            values,
+            neglogps,
+            returns,
+        };
+
+        let batcher = ExperienceBatcher::<Wgpu>::new(device.clone());
+        let dataloader = DataLoaderBuilder::new(batcher)
+            .batch_size(1)
+            .shuffle(123)
+            .build(training_view);
+        for batch in dataloader.iter() {
+            assert_eq!(batch.observations.dims()[0], 1);
         }
     }
 }
