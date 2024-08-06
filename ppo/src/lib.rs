@@ -1,4 +1,5 @@
 mod common;
+mod data;
 mod runner;
 
 use std::{fmt::Debug, hash::Hash};
