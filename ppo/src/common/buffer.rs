@@ -205,7 +205,7 @@ impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OB
 
         let nonterminals = 1f32 - &self.dones;
 
-        let last_dones: Vec<f32> = last_dones.iter().map(|d| *d as u8 as f32).collect();
+        let last_dones: Vec<f32> = last_dones.iter().map(|d| !*d as u8 as f32).collect();
 
         let last_nonterminal = arr1(&last_dones);
         let last_values_data = last_values.into_data();
