@@ -1,19 +1,18 @@
-use std::path::{Path, PathBuf};
-
 use burn::{
     data::dataloader::DataLoaderBuilder,
     grad_clipping::GradientClippingConfig,
     optim::AdamConfig,
     prelude::*,
     record::{FullPrecisionSettings, NamedMpkFileRecorder, Recorder},
-    tensor::{backend::AutodiffBackend, cast::ToElement},
+    tensor::backend::AutodiffBackend,
 };
+use ndarray::{Array1, Axis};
 use rand::RngCore;
 
 use crate::{
     common::ExperienceBuffer,
     data::{ExperienceBatcher, TrainingView},
-    model::{self, Learner, ModelConfig, TrainingStats},
+    model::{Learner, ModelConfig, TrainingStats},
     runner::VecRunner,
     Environment,
 };
@@ -45,30 +44,21 @@ pub struct TrainingConfig {
 
 // Given targets and predicted values, compute a metric to determine how good
 // the prediction is.
-fn explained_variance<B: Backend>(predictions: Tensor<B, 1>, targets: Tensor<B, 1>) -> f32 {
-    let target_variance = targets.clone().var_bias(0).into_scalar().to_f32();
+fn explained_variance(predictions: Array1<f32>, targets: Array1<f32>) -> f32 {
+    let target_variance = targets.var_axis(Axis(0), 0.).into_scalar();
     if target_variance == -1.0 {
         f32::NAN
     } else {
         let diff = targets - predictions;
-        let diff_variance = diff.var_bias(0).into_scalar().to_f32();
+        let diff_variance = diff.var_axis(Axis(0), 0.).into_scalar();
         0.0 - (diff_variance / target_variance)
     }
-}
-
-fn argmax<T: PartialOrd>(x: &[T]) -> usize {
-    x.iter()
-        .enumerate()
-        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
-        .map(|(i, _)| i)
-        .unwrap()
 }
 
 pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_ACTIONS: usize>(
     init_env_state: T,
     config: TrainingConfig,
     model_path: P,
-    device: &B::Device,
 ) where
     T: Environment<OBS_SIZE, NUM_ACTIONS>,
     P: AsRef<std::path::Path>,
@@ -153,6 +143,8 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
         let returns = exp_buf.returns(last_critic, dones);
         let (observations, actions, values, neglogps) = exp_buf.training_views();
 
+        let explained_variance = explained_variance(values.clone(), returns.clone());
+
         let exp_dataset = TrainingView {
             observations,
             actions,
@@ -174,12 +166,13 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
                 (learner, stats) = learner.step(batch);
             }
         }
+        stats.explained_variance = explained_variance;
 
         let ep_scores: Vec<f32> = eprews.into_iter().flatten().collect();
         let ep_lens: Vec<i64> = eplens.into_iter().flatten().collect();
         let num_eps = ep_scores.len();
         let avg_ep_len = ep_lens.into_iter().sum::<i64>() as f32 / num_eps as f32;
-        let avg_score = ep_scores.into_iter().sum::<f32>() as f32 / num_eps as f32;
+        let avg_score = ep_scores.into_iter().sum::<f32>() / num_eps as f32;
 
         if (i > 10) && (avg_score > high_score) {
             println!(

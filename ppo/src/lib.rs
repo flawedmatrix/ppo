@@ -29,3 +29,5 @@ pub trait Environment<const OBS_SIZE: usize, const NUM_ACTIONS: usize>:
     /// the environment
     fn score(&self) -> f32;
 }
+
+pub use training::*;

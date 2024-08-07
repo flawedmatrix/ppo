@@ -15,6 +15,7 @@ pub struct TrainingStats {
     pub entropy: f32,
     pub approxkl: f32,
     pub clipfrac: f32,
+    pub explained_variance: f32,
 }
 
 pub struct Learner<B: AutodiffBackend> {
