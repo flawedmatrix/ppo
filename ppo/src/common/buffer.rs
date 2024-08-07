@@ -31,7 +31,7 @@ pub struct ExperienceBuffer<const NUM_ENVS: usize, const OBS_SIZE: usize> {
     // This storage allows only a number of entries up to a certain capacity.
     obs: Array3<f32>,      // [capacity, NUM_ENVS, OBS_SIZE]
     rewards: Array2<f32>,  // [capacity, NUM_ENVS]
-    actions: Array2<i32>,  // [capacity, NUM_ENVS]
+    actions: Array2<u32>,  // [capacity, NUM_ENVS]
     values: Array2<f32>,   // [capacity, NUM_ENVS]
     dones: Array2<f32>,    // [capacity, NUM_ENVS]
     neglogps: Array2<f32>, // [capacity, NUM_ENVS]
@@ -81,15 +81,15 @@ impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OB
     pub fn add_experience<B: Backend>(
         &mut self,
         obs: Tensor<B, 2>, // [NUM_ENVS, OBS_SIZE]
-        rewards: Box<[f32; NUM_ENVS]>,
-        actions: Box<[i32; NUM_ENVS]>,
+        rewards: Vec<f32>,
+        actions: Vec<u32>,
         vals: Tensor<B, 1>, // [NUM_ENVS]
-        dones: Box<[bool; NUM_ENVS]>,
+        dones: Vec<bool>,
         neglogps: Tensor<B, 1>,
     ) {
         let idx = self.counter % self.capacity;
 
-        let dones = dones.map(|d| d as u8 as f32);
+        let dones: Vec<f32> = dones.iter().map(|d| *d as u8 as f32).collect();
 
         assert_eq!(obs.dims(), [NUM_ENVS, OBS_SIZE]);
         let obs_data = obs.into_data();
@@ -97,10 +97,12 @@ impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OB
             .index_view(idx)
             .copy_from_slice(obs_data.as_slice().unwrap());
 
+        assert_eq!(rewards.len(), NUM_ENVS);
         self.rewards
             .index_view(idx)
             .copy_from_slice(rewards.as_slice());
 
+        assert_eq!(actions.len(), NUM_ENVS);
         self.actions
             .index_view(idx)
             .copy_from_slice(actions.as_slice());
@@ -111,6 +113,7 @@ impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OB
             .index_view(idx)
             .copy_from_slice(vals_data.as_slice().unwrap());
 
+        assert_eq!(dones.len(), NUM_ENVS);
         self.dones.index_view(idx).copy_from_slice(&dones);
 
         assert_eq!(neglogps.dims(), [NUM_ENVS]);
@@ -144,7 +147,7 @@ impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OB
     /// Actions - Int [num_steps]
     /// Values - Float [num_steps]
     /// Neglogps - Float [num_steps]
-    pub fn training_views(&self) -> (Array2<f32>, Array1<i32>, Array1<f32>, Array1<f32>) {
+    pub fn training_views(&self) -> (Array2<f32>, Array1<u32>, Array1<f32>, Array1<f32>) {
         let len = self.len();
         let num_steps = len * NUM_ENVS;
 
@@ -189,19 +192,22 @@ impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OB
     pub fn returns<B: Backend>(
         &self,
         last_values: Tensor<B, 1>, // [NUM_ENVS]
-        last_dones: Box<[bool; NUM_ENVS]>,
+        last_dones: Vec<bool>,     // [NUM_ENVS]
     ) -> Array1<f32> {
         let len = self.len();
         let num_steps = len * NUM_ENVS;
 
         assert_eq!(last_values.dims(), [NUM_ENVS]);
+        assert_eq!(last_dones.len(), NUM_ENVS);
 
         let mut lastgaelam: Array1<f32> = Array::zeros(NUM_ENVS);
         let mut advs: Array2<f32> = Array::zeros((len, NUM_ENVS));
 
         let nonterminals = 1f32 - &self.dones;
 
-        let last_nonterminal = arr1(&last_dones.map(|d| !d as u8 as f32));
+        let last_dones: Vec<f32> = last_dones.iter().map(|d| *d as u8 as f32).collect();
+
+        let last_nonterminal = arr1(&last_dones);
         let last_values_data = last_values.into_data();
         let last_values = arr1(last_values_data.as_slice().unwrap());
 
@@ -242,10 +248,10 @@ mod tests {
         let obs1 = Tensor::from_floats([[0.0, 1.0, 2.0], [1.0, 2.0, 3.0]], &device);
         exp_buf.add_experience::<Wgpu>(
             obs1,
-            Box::new([0.1, 1.1]),
-            Box::new([1, 2]),
+            vec![0.1, 1.1],
+            vec![1, 2],
             Tensor::from_floats([3.0, 6.0], &device),
-            Box::new([false, false]),
+            vec![false, false],
             Tensor::from_floats([20.0, 21.0], &device),
         );
         let (obs, actions, values, neglogps) = exp_buf.training_views();
@@ -263,10 +269,8 @@ mod tests {
         assert_eq!(neglogps.shape(), [2]);
         assert_eq!(neglogps, array![20.0, 21.0]);
 
-        let returns = exp_buf.returns::<Wgpu>(
-            Tensor::from_floats([12.0, 15.0], &device),
-            Box::new([true, true]),
-        );
+        let returns =
+            exp_buf.returns::<Wgpu>(Tensor::from_floats([12.0, 15.0], &device), vec![true, true]);
         assert_eq!(returns.shape(), [2]);
     }
 
@@ -282,28 +286,28 @@ mod tests {
 
         exp_buf.add_experience::<Wgpu>(
             obs1,
-            Box::new([0.1, 1.1]),
-            Box::new([1, 2]),
+            vec![0.1, 1.1],
+            vec![1, 2],
             Tensor::from_floats([3.0, 6.0], &device),
-            Box::new([false, false]),
+            vec![false, false],
             Tensor::from_floats([20.0, 21.0], &device),
         );
 
         exp_buf.add_experience::<Wgpu>(
             obs2,
-            Box::new([1.1, 2.1]),
-            Box::new([2, 3]),
+            vec![1.1, 2.1],
+            vec![2, 3],
             Tensor::from_floats([6.0, 9.0], &device),
-            Box::new([false, false]),
+            vec![false, false],
             Tensor::from_floats([21.0, 22.0], &device),
         );
 
         exp_buf.add_experience::<Wgpu>(
             obs3,
-            Box::new([2.1, 3.1]),
-            Box::new([3, 4]),
+            vec![2.1, 3.1],
+            vec![3, 4],
             Tensor::from_floats([9.0, 12.0], &device),
-            Box::new([false, false]),
+            vec![false, false],
             Tensor::from_floats([22.0, 23.0], &device),
         );
 
@@ -348,20 +352,20 @@ mod tests {
 
         exp_buf.add_experience::<Wgpu>(
             obs1,
-            Box::new([0.1, 1.1]),
-            Box::new([1, 2]),
+            vec![0.1, 1.1],
+            vec![1, 2],
             Tensor::from_floats([3.0, 6.0], &device),
-            Box::new([false, false]),
+            vec![false, false],
             Tensor::from_floats([20.0, 21.0], &device),
         );
 
         for _ in 0..(3 * 456 - 2) {
             exp_buf.add_experience::<Wgpu>(
                 obs2.clone(),
-                Box::new([1.1, 2.1]),
-                Box::new([2, 3]),
+                vec![1.1, 2.1],
+                vec![2, 3],
                 Tensor::from_floats([6.0, 9.0], &device),
-                Box::new([false, false]),
+                vec![false, false],
                 Tensor::from_floats([21.0, 22.0], &device),
             );
         }
@@ -369,28 +373,28 @@ mod tests {
         // Should end up in the third slot
         exp_buf.add_experience::<Wgpu>(
             obs3,
-            Box::new([2.1, 3.1]),
-            Box::new([3, 4]),
+            vec![2.1, 3.1],
+            vec![3, 4],
             Tensor::from_floats([9.0, 12.0], &device),
-            Box::new([false, false]),
+            vec![false, false],
             Tensor::from_floats([22.0, 23.0], &device),
         );
 
         exp_buf.add_experience::<Wgpu>(
             obs4,
-            Box::new([3.1, 4.1]),
-            Box::new([4, 5]),
+            vec![3.1, 4.1],
+            vec![4, 5],
             Tensor::from_floats([12.0, 15.0], &device),
-            Box::new([false, false]),
+            vec![false, false],
             Tensor::from_floats([23.0, 24.0], &device),
         );
 
         exp_buf.add_experience::<Wgpu>(
             obs5,
-            Box::new([4.1, 5.1]),
-            Box::new([5, 6]),
+            vec![4.1, 5.1],
+            vec![5, 6],
             Tensor::from_floats([15.0, 18.0], &device),
-            Box::new([false, true]),
+            vec![false, true],
             Tensor::from_floats([24.0, 25.0], &device),
         );
 
@@ -417,10 +421,8 @@ mod tests {
         assert_eq!(neglogps.shape(), [6]);
         assert_eq!(neglogps, array![23.0, 24.0, 24.0, 25.0, 22.0, 23.0]);
 
-        let returns = exp_buf.returns::<Wgpu>(
-            Tensor::from_floats([12.0, 15.0], &device),
-            Box::new([true, true]),
-        );
+        let returns =
+            exp_buf.returns::<Wgpu>(Tensor::from_floats([12.0, 15.0], &device), vec![true, true]);
         assert_eq!(returns.shape(), [6]);
     }
 
@@ -436,35 +438,33 @@ mod tests {
 
         exp_buf.add_experience::<Wgpu>(
             obs1,
-            Box::new([0.1, 1.1]),
-            Box::new([1, 2]),
+            vec![0.1, 1.1],
+            vec![1, 2],
             Tensor::from_floats([3.0, 6.0], &device),
-            Box::new([false, false]),
+            vec![false, false],
             Tensor::from_floats([20.0, 21.0], &device),
         );
 
         exp_buf.add_experience::<Wgpu>(
             obs2,
-            Box::new([1.1, 2.1]),
-            Box::new([2, 3]),
+            vec![1.1, 2.1],
+            vec![2, 3],
             Tensor::from_floats([6.0, 9.0], &device),
-            Box::new([false, false]),
+            vec![false, false],
             Tensor::from_floats([21.0, 22.0], &device),
         );
 
         exp_buf.add_experience::<Wgpu>(
             obs3,
-            Box::new([2.1, 3.1]),
-            Box::new([3, 4]),
+            vec![2.1, 3.1],
+            vec![3, 4],
             Tensor::from_floats([9.0, 12.0], &device),
-            Box::new([false, false]),
+            vec![false, false],
             Tensor::from_floats([22.0, 23.0], &device),
         );
 
-        let returns = exp_buf.returns::<Wgpu>(
-            Tensor::from_floats([12.0, 15.0], &device),
-            Box::new([true, true]),
-        );
+        let returns =
+            exp_buf.returns::<Wgpu>(Tensor::from_floats([12.0, 15.0], &device), vec![true, true]);
         let ret = returns.as_slice().unwrap();
         print!("ret {ret:?}");
         assert!(ret[0] > 3.708 && ret[0] < 3.7081);

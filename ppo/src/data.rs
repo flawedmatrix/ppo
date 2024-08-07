@@ -7,16 +7,16 @@ use ndarray::{s, Array1, Array2};
 /// A temporary container for training views.
 pub struct TrainingView {
     pub observations: Array2<f32>,
-    pub actions: Array1<i32>,
+    pub actions: Array1<u32>,
     pub values: Array1<f32>,
     pub neglogps: Array1<f32>,
     pub returns: Array1<f32>,
 }
 
 #[derive(Clone, Debug)]
-struct Experience {
+pub struct Experience {
     observation: Vec<f32>,
-    action: i32,
+    action: u32,
     value: f32,
     neglogp: f32,
     ret: f32,
@@ -76,7 +76,7 @@ impl<B: Backend> Batcher<Experience, ExperienceBatch<B>> for ExperienceBatcher<B
             .map(|tensor| tensor.reshape([1, -1]))
             .collect();
 
-        let actions: Vec<i32> = items.iter().map(|item| item.action).collect();
+        let actions: Vec<u32> = items.iter().map(|item| item.action).collect();
         let values: Vec<f32> = items.iter().map(|item| item.value).collect();
         let neglogps: Vec<f32> = items.iter().map(|item| item.neglogp).collect();
         let returns: Vec<f32> = items.iter().map(|item| item.ret).collect();
@@ -114,19 +114,17 @@ mod tests {
         let obs1 = Tensor::from_floats([[0.0, 1.0, 2.0], [1.0, 2.0, 3.0]], &device);
         exp_buf.add_experience::<Wgpu>(
             obs1,
-            Box::new([0.1, 1.1]),
-            Box::new([1, 2]),
+            vec![0.1, 1.1],
+            vec![1, 2],
             Tensor::from_floats([3.0, 6.0], &device),
-            Box::new([false, false]),
+            vec![false, false],
             Tensor::from_floats([20.0, 21.0], &device),
         );
 
         let (observations, actions, values, neglogps) = exp_buf.training_views();
 
-        let returns = exp_buf.returns::<Wgpu>(
-            Tensor::from_floats([12.0, 15.0], &device),
-            Box::new([true, true]),
-        );
+        let returns =
+            exp_buf.returns::<Wgpu>(Tensor::from_floats([12.0, 15.0], &device), vec![true, true]);
 
         let training_view = TrainingView {
             observations,

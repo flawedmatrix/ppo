@@ -1,0 +1,47 @@
+use burn::{nn::Relu, prelude::*};
+
+use crate::common::{combine_linear_heads, OrthoLinearConfig};
+
+use super::PolicyModel;
+
+#[derive(Config, Debug)]
+pub struct ModelConfig {
+    #[config(default = 0.2)]
+    pub clip_range: f32,
+    #[config(default = 0.01)]
+    pub entropy_coefficient: f32,
+    #[config(default = 0.5)]
+    pub vf_coefficient: f32,
+    #[config(default = 0.5)]
+    pub max_grad_norm: f32,
+
+    #[config(default = 3e-4)]
+    pub lr: f64,
+
+    pub observation_size: usize,
+    pub hidden_size: usize,
+    pub num_actions: usize,
+}
+
+impl ModelConfig {
+    /// Returns the initialized model.
+    pub fn init<B: Backend>(&self, device: &B::Device) -> PolicyModel<B> {
+        let sqrt_2 = f32::sqrt(2.);
+        let critic_output = OrthoLinearConfig::new(self.hidden_size, 1, 1.0).init(device);
+        let actor_output =
+            OrthoLinearConfig::new(self.hidden_size, self.num_actions, 0.01).init(device);
+        let output = combine_linear_heads(critic_output, actor_output, device);
+
+        PolicyModel {
+            input: OrthoLinearConfig::new(self.observation_size, self.hidden_size, sqrt_2)
+                .init(device),
+            hidden: (0..self.hidden_size)
+                .map(|_| {
+                    OrthoLinearConfig::new(self.hidden_size, self.hidden_size, sqrt_2).init(device)
+                })
+                .collect(),
+            output,
+            activation: Relu::new(),
+        }
+    }
+}
