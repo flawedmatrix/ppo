@@ -80,12 +80,12 @@ impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OB
     /// Panics if the inputs are an incorrect size
     pub fn add_experience<B: Backend>(
         &mut self,
-        obs: Tensor<B, 2>, // [NUM_ENVS, OBS_SIZE]
-        rewards: Vec<f32>,
-        actions: Vec<u32>,
-        vals: Tensor<B, 1>, // [NUM_ENVS]
-        dones: Vec<bool>,
-        neglogps: Tensor<B, 1>,
+        obs: Tensor<B, 2>,      // [NUM_ENVS, OBS_SIZE]
+        rewards: Vec<f32>,      // [NUM_ENVS]
+        actions: Vec<u32>,      // [NUM_ENVS]
+        vals: Tensor<B, 1>,     // [NUM_ENVS]
+        dones: Vec<bool>,       // [NUM_ENVS]
+        neglogps: Tensor<B, 1>, // [NUM_ENVS]
     ) {
         let idx = self.counter % self.capacity;
 
