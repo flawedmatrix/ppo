@@ -5,7 +5,18 @@ use crate::common::{combine_linear_heads, OrthoLinearConfig};
 use super::PolicyModel;
 
 #[derive(Config, Debug)]
+/// ModelConfig describes the parameters of the training process for the model.
+/// Must provide observation size and number of actions when instantiating.
+/// e.g.
+/// ```
+/// let observation_size = 20;
+/// let num_actions = 10;
+/// ModelConfig::new(observation_size, num_actions);
+/// ``````
 pub struct ModelConfig {
+    pub observation_size: usize,
+    pub num_actions: usize,
+
     #[config(default = 0.2)]
     pub clip_range: f32,
     #[config(default = 0.01)]
@@ -17,10 +28,8 @@ pub struct ModelConfig {
 
     #[config(default = 3e-4)]
     pub lr: f64,
-
-    pub observation_size: usize,
+    #[config(default = 1024)]
     pub hidden_size: usize,
-    pub num_actions: usize,
 }
 
 impl ModelConfig {
