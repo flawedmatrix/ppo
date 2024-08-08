@@ -134,7 +134,7 @@ mod tests {
             returns,
         };
 
-        let batcher = ExperienceBatcher::<NdArray>::new(device.clone());
+        let batcher = ExperienceBatcher::<NdArray>::new(device);
         let dataloader = DataLoaderBuilder::new(batcher)
             .batch_size(1)
             .shuffle(123)

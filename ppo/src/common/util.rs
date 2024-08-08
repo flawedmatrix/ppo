@@ -13,7 +13,7 @@ pub fn combine_linear_heads<B: Backend>(
 ) -> Linear<B> {
     let (_, layer1_weights) = layer1.weight.consume();
     let (_, layer2_weights) = layer2.weight.consume();
-    let output_weights = Tensor::cat(vec![layer1_weights, layer2_weights], 1);
+    let output_weights = Tensor::cat(vec![layer1_weights, layer2_weights], 1).detach();
 
     let output_size = output_weights.dims()[1];
 

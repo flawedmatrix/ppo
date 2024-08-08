@@ -82,6 +82,7 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
 
         config: config.model_config,
     };
+    println!("Model instantiated.");
 
     let recorder = NamedMpkFileRecorder::<FullPrecisionSettings>::new();
 
@@ -97,10 +98,16 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
 
     let checkpoint_path = if model_path.is_file() && model_path.parent().is_some_and(|p| p.exists())
     {
+        println!(
+            "Storing checkpoints in parent path of model : {}",
+            model_path.parent().unwrap().display()
+        );
         model_path.parent().unwrap().to_owned()
     } else if model_path.is_dir() && model_path.exists() {
+        println!("Storing checkpoints in path: {}", model_path.display());
         model_path.to_owned()
     } else {
+        println!("Model path does not exist. Storing checkpoints in $CWD/checkpoints/");
         let cwd = std::env::current_dir().expect("Could not access current working directory.");
         cwd.join("checkpoints/")
     };
@@ -183,7 +190,7 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
             learner
                 .model
                 .clone()
-                .save_file(checkpoint_path.join("best_so_far_{i}"), &recorder)
+                .save_file(checkpoint_path.join(format!("best_so_far_{i}")), &recorder)
                 .expect("Failed to save high score checkpoint");
             high_score = avg_score;
         }
@@ -197,7 +204,7 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
             learner
                 .model
                 .clone()
-                .save_file(checkpoint_path.join("checkpoint_{i}"), &recorder)
+                .save_file(checkpoint_path.join(format!("checkpoint_{i}")), &recorder)
                 .expect("Failed to save checkpoint");
         }
     }

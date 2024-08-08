@@ -72,6 +72,8 @@ impl<B: Backend> PolicyModel<B> {
 
         let neglogps = super::learner::neglog_probs(actor, actions.clone());
 
-        (critic, actions.to_data().to_vec::<u32>().unwrap(), neglogps)
+        let actions_data = actions.to_data().convert::<u32>().to_vec::<u32>().unwrap();
+
+        (critic, actions_data, neglogps)
     }
 }

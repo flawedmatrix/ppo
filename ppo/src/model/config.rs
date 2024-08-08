@@ -38,9 +38,12 @@ impl ModelConfig {
     /// Returns the initialized model.
     pub fn init<B: Backend>(&self, device: &B::Device) -> PolicyModel<B> {
         let sqrt_2 = f32::sqrt(2.);
-        let critic_output = OrthoLinearConfig::new(self.hidden_size, 1, 1.0).init(device);
-        let actor_output =
-            OrthoLinearConfig::new(self.hidden_size, self.num_actions, 0.01).init(device);
+        let critic_output = OrthoLinearConfig::new(self.hidden_size, 1, 1.0)
+            .with_bias(false)
+            .init(device);
+        let actor_output = OrthoLinearConfig::new(self.hidden_size, self.num_actions, 0.01)
+            .with_bias(false)
+            .init(device);
         let output = combine_linear_heads(critic_output, actor_output, device);
 
         PolicyModel {
