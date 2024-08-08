@@ -34,7 +34,7 @@ pub struct TrainingConfig {
     #[config(default = 4)]
     /// Number of workers
     pub num_workers: usize,
-    #[config(default = 4)]
+    #[config(default = 1280)]
     /// Number of experiences per batch of data used in a single iteration
     /// during the model training pass
     pub batch_size: usize,
