@@ -9,6 +9,7 @@ use super::PolicyModel;
 /// Must provide observation size and number of actions when instantiating.
 /// e.g.
 /// ```
+/// use ppo::ModelConfig;
 /// let observation_size = 20;
 /// let num_actions = 10;
 /// ModelConfig::new(observation_size, num_actions);
