@@ -34,7 +34,7 @@ fn ortho_init<B: Backend, const D: usize, S: Into<Shape<D>>>(
 
     let dist = StandardNormal;
     let gaussian_noise =
-        Array2::<f32>::from_shape_simple_fn((rows, num_elems), move || dist.sample(&mut rng));
+        Array2::<f32>::from_shape_simple_fn((rows, cols), move || dist.sample(&mut rng));
 
     let (opt_u, _, opt_vt) = gaussian_noise.svd(true, true).unwrap();
 
@@ -144,5 +144,16 @@ mod tests {
             .expect("Bias should be present by default")
             .to_data()
             .assert_within_range(-1e-10..1e10);
+    }
+
+    #[test]
+    fn ortho_init_thin() {
+        let device = Default::default();
+        let layer = OrthoLinearConfig::new(10, 1, 1.);
+        let linear = layer.init::<Wgpu>(&device);
+        let q = linear.weight.val();
+
+        // Ensure weights are able to be generated in this case.
+        assert_eq!(q.dims(), [10, 1]);
     }
 }
