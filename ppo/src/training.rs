@@ -23,18 +23,19 @@ pub struct TrainingConfig {
     #[config(default = 160)]
     /// Number of environments to run in parallel for each training pass
     pub num_envs: usize,
+
     #[config(default = 32)]
     /// Number of action steps to train for in each update
     pub num_steps: usize,
+
     #[config(default = 15000)]
     /// Number of training passes for the model
     pub num_epochs: usize,
+
     #[config(default = 4)]
     /// Number of iterations during the model training pass
     pub num_train_iterations: usize,
-    #[config(default = 4)]
-    /// Number of workers
-    pub num_workers: usize,
+
     #[config(default = 1280)]
     /// Number of experiences per batch of data used in a single iteration
     /// during the model training pass
@@ -174,7 +175,6 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
         let dataloader = DataLoaderBuilder::new(exp_batcher)
             .batch_size(config.batch_size)
             .shuffle(seed)
-            .num_workers(config.num_workers)
             .build(exp_dataset);
 
         let mut stats = TrainingStats::default();
