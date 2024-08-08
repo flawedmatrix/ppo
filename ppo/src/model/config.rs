@@ -28,6 +28,8 @@ pub struct ModelConfig {
 
     #[config(default = 3e-4)]
     pub lr: f64,
+    #[config(default = 2)]
+    pub num_hidden_layers: usize,
     #[config(default = 1024)]
     pub hidden_size: usize,
 }
@@ -44,7 +46,7 @@ impl ModelConfig {
         PolicyModel {
             input: OrthoLinearConfig::new(self.observation_size, self.hidden_size, sqrt_2)
                 .init(device),
-            hidden: (0..self.hidden_size)
+            hidden: (0..self.num_hidden_layers)
                 .map(|_| {
                     OrthoLinearConfig::new(self.hidden_size, self.hidden_size, sqrt_2).init(device)
                 })

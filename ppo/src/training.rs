@@ -17,7 +17,7 @@ use crate::{
     Environment,
 };
 
-#[derive(Config)]
+#[derive(Config, Debug)]
 pub struct TrainingConfig {
     #[config(default = 160)]
     /// Number of environments to run in parallel for each training pass
@@ -71,6 +71,7 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
     let seed: u64 = rng.next_u64();
     B::seed(seed);
 
+    println!("Instantiating model with config {config:?}");
     let mut learner = Learner {
         model: config.model_config.init(&device),
         optim: AdamConfig::new()
