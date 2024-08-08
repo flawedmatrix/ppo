@@ -47,7 +47,7 @@ pub fn combine_linear_heads<B: Backend>(
 
 #[cfg(test)]
 mod tests {
-    use burn::backend::Wgpu;
+    use burn::backend::NdArray;
     use nn::LinearConfig;
 
     use super::*;
@@ -59,21 +59,21 @@ mod tests {
         let head1 = LinearConfig::new(5, 1)
             .with_bias(false)
             .with_initializer(nn::Initializer::Constant { value: 2. })
-            .init::<Wgpu>(&device);
+            .init::<NdArray>(&device);
         let head2 = LinearConfig::new(5, 3)
             .with_bias(false)
             .with_initializer(nn::Initializer::Constant { value: 1. })
-            .init::<Wgpu>(&device);
+            .init::<NdArray>(&device);
 
         // Maps the input [1, 2, 3, 4, 5] to [30] and [15, 15, 15]
 
-        let combined_heads = combine_linear_heads::<Wgpu>(head1, head2, &device);
-        let output = combined_heads.forward(Tensor::<Wgpu, 1>::from_floats(
+        let combined_heads = combine_linear_heads::<NdArray>(head1, head2, &device);
+        let output = combined_heads.forward(Tensor::<NdArray, 1>::from_floats(
             [1., 2., 3., 4., 5.],
             &device,
         ));
 
-        let expected = Tensor::<Wgpu, 1>::from_floats([30., 15., 15., 15.], &device);
+        let expected = Tensor::<NdArray, 1>::from_floats([30., 15., 15., 15.], &device);
 
         output.to_data().assert_approx_eq(&expected.to_data(), 7);
     }

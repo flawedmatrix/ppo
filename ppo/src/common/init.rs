@@ -117,7 +117,7 @@ impl OrthoLinearConfig {
 
 #[cfg(test)]
 mod tests {
-    use burn::backend::Wgpu;
+    use burn::backend::NdArray;
 
     use super::*;
 
@@ -125,13 +125,13 @@ mod tests {
     fn ortho_init_default() {
         let device = Default::default();
         let layer = OrthoLinearConfig::new(10, 10, 2f32.sqrt());
-        let linear = layer.init::<Wgpu>(&device);
+        let linear = layer.init::<NdArray>(&device);
         let q = linear.weight.val();
         let res = q.clone().matmul(q.transpose());
 
         // For some reason the diag mask returns false only along the diagonal,
         // so we have to inverse it
-        let diag = Tensor::<Wgpu, 2, Bool>::diag_mask([10, 10], 0, &device)
+        let diag = Tensor::<NdArray, 2, Bool>::diag_mask([10, 10], 0, &device)
             .bool_not()
             .float()
             .mul_scalar(2.);
@@ -150,7 +150,7 @@ mod tests {
     fn ortho_init_thin() {
         let device = Default::default();
         let layer = OrthoLinearConfig::new(10, 1, 1.);
-        let linear = layer.init::<Wgpu>(&device);
+        let linear = layer.init::<NdArray>(&device);
         let q = linear.weight.val();
 
         // Ensure weights are able to be generated in this case.

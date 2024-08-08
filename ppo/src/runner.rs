@@ -144,7 +144,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use burn::backend::Wgpu;
+    use burn::backend::NdArray;
 
     use super::*;
 
@@ -191,13 +191,13 @@ mod tests {
 
         let device = Default::default();
 
-        let expected = Tensor::<Wgpu, 2>::from_floats(
+        let expected = Tensor::<NdArray, 2>::from_floats(
             [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [1.0, 1.0, 1.0]],
             &device,
         );
 
         runner
-            .current_state::<Wgpu>()
+            .current_state::<NdArray>()
             .to_data()
             .assert_eq(&expected.to_data(), true);
 
@@ -206,13 +206,13 @@ mod tests {
         assert_eq!(result.final_scores.len(), 0);
         assert_eq!(result.final_step_nums.len(), 0);
 
-        let expected = Tensor::<Wgpu, 2>::from_floats(
+        let expected = Tensor::<NdArray, 2>::from_floats(
             [[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [2.0, 2.0, 2.0]],
             &device,
         );
 
         runner
-            .current_state::<Wgpu>()
+            .current_state::<NdArray>()
             .to_data()
             .assert_eq(&expected.to_data(), true);
 
@@ -222,12 +222,12 @@ mod tests {
         assert_eq!(result.final_scores, vec![3.0]);
         assert_eq!(result.final_step_nums, vec![100]);
 
-        let expected = Tensor::<Wgpu, 2>::from_floats(
+        let expected = Tensor::<NdArray, 2>::from_floats(
             [[2.0, 2.0, 2.0], [2.0, 2.0, 2.0], [0.0, 0.0, 0.0]],
             &device,
         );
         runner
-            .current_state::<Wgpu>()
+            .current_state::<NdArray>()
             .to_data()
             .assert_eq(&expected.to_data(), true);
 
@@ -236,12 +236,12 @@ mod tests {
         assert_eq!(result.final_scores, vec![3.0]);
         assert_eq!(result.final_step_nums, vec![100]);
 
-        let expected = Tensor::<Wgpu, 2>::from_floats(
+        let expected = Tensor::<NdArray, 2>::from_floats(
             [[2.0, 2.0, 2.0], [0.0, 0.0, 0.0], [1.0, 1.0, 1.0]],
             &device,
         );
         runner
-            .current_state::<Wgpu>()
+            .current_state::<NdArray>()
             .to_data()
             .assert_eq(&expected.to_data(), true);
     }
@@ -259,12 +259,12 @@ mod tests {
 
         let device = Default::default();
 
-        let expected = Tensor::<Wgpu, 2>::from_floats(
+        let expected = Tensor::<NdArray, 2>::from_floats(
             [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [1.0, 1.0, 1.0]],
             &device,
         );
         runner
-            .current_state::<Wgpu>()
+            .current_state::<NdArray>()
             .to_data()
             .assert_eq(&expected.to_data(), true);
 
@@ -274,12 +274,12 @@ mod tests {
         assert_eq!(result.final_scores, vec![-5.0]);
         assert_eq!(result.final_step_nums, vec![100]);
 
-        let expected = Tensor::<Wgpu, 2>::from_floats(
+        let expected = Tensor::<NdArray, 2>::from_floats(
             [[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [0.0, 0.0, 0.0]],
             &device,
         );
         runner
-            .current_state::<Wgpu>()
+            .current_state::<NdArray>()
             .to_data()
             .assert_eq(&expected.to_data(), true);
     }

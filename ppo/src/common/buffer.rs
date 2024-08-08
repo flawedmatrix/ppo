@@ -235,7 +235,7 @@ impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OB
 
 #[cfg(test)]
 mod tests {
-    use burn::backend::Wgpu;
+    use burn::backend::NdArray;
 
     use super::*;
 
@@ -246,7 +246,7 @@ mod tests {
         let device = Default::default();
 
         let obs1 = Tensor::from_floats([[0.0, 1.0, 2.0], [1.0, 2.0, 3.0]], &device);
-        exp_buf.add_experience::<Wgpu>(
+        exp_buf.add_experience::<NdArray>(
             obs1,
             vec![0.1, 1.1],
             vec![1, 2],
@@ -269,8 +269,8 @@ mod tests {
         assert_eq!(neglogps.shape(), [2]);
         assert_eq!(neglogps, array![20.0, 21.0]);
 
-        let returns =
-            exp_buf.returns::<Wgpu>(Tensor::from_floats([12.0, 15.0], &device), vec![true, true]);
+        let returns = exp_buf
+            .returns::<NdArray>(Tensor::from_floats([12.0, 15.0], &device), vec![true, true]);
         assert_eq!(returns.shape(), [2]);
     }
 
@@ -284,7 +284,7 @@ mod tests {
         let obs2 = Tensor::from_floats([[2.0, 3.0, 4.0], [3.0, 4.0, 5.0]], &device);
         let obs3 = Tensor::from_floats([[4.0, 5.0, 6.0], [5.0, 6.0, 7.0]], &device);
 
-        exp_buf.add_experience::<Wgpu>(
+        exp_buf.add_experience::<NdArray>(
             obs1,
             vec![0.1, 1.1],
             vec![1, 2],
@@ -293,7 +293,7 @@ mod tests {
             Tensor::from_floats([20.0, 21.0], &device),
         );
 
-        exp_buf.add_experience::<Wgpu>(
+        exp_buf.add_experience::<NdArray>(
             obs2,
             vec![1.1, 2.1],
             vec![2, 3],
@@ -302,7 +302,7 @@ mod tests {
             Tensor::from_floats([21.0, 22.0], &device),
         );
 
-        exp_buf.add_experience::<Wgpu>(
+        exp_buf.add_experience::<NdArray>(
             obs3,
             vec![2.1, 3.1],
             vec![3, 4],
@@ -350,7 +350,7 @@ mod tests {
         let obs4 = Tensor::from_floats([[5.0, 6.0, 7.0], [6.0, 7.0, 8.0]], &device);
         let obs5 = Tensor::from_floats([[6.0, 7.0, 8.0], [7.0, 8.0, 9.0]], &device);
 
-        exp_buf.add_experience::<Wgpu>(
+        exp_buf.add_experience::<NdArray>(
             obs1,
             vec![0.1, 1.1],
             vec![1, 2],
@@ -360,7 +360,7 @@ mod tests {
         );
 
         for _ in 0..(3 * 456 - 2) {
-            exp_buf.add_experience::<Wgpu>(
+            exp_buf.add_experience::<NdArray>(
                 obs2.clone(),
                 vec![1.1, 2.1],
                 vec![2, 3],
@@ -371,7 +371,7 @@ mod tests {
         }
 
         // Should end up in the third slot
-        exp_buf.add_experience::<Wgpu>(
+        exp_buf.add_experience::<NdArray>(
             obs3,
             vec![2.1, 3.1],
             vec![3, 4],
@@ -380,7 +380,7 @@ mod tests {
             Tensor::from_floats([22.0, 23.0], &device),
         );
 
-        exp_buf.add_experience::<Wgpu>(
+        exp_buf.add_experience::<NdArray>(
             obs4,
             vec![3.1, 4.1],
             vec![4, 5],
@@ -389,7 +389,7 @@ mod tests {
             Tensor::from_floats([23.0, 24.0], &device),
         );
 
-        exp_buf.add_experience::<Wgpu>(
+        exp_buf.add_experience::<NdArray>(
             obs5,
             vec![4.1, 5.1],
             vec![5, 6],
@@ -421,8 +421,8 @@ mod tests {
         assert_eq!(neglogps.shape(), [6]);
         assert_eq!(neglogps, array![23.0, 24.0, 24.0, 25.0, 22.0, 23.0]);
 
-        let returns =
-            exp_buf.returns::<Wgpu>(Tensor::from_floats([12.0, 15.0], &device), vec![true, true]);
+        let returns = exp_buf
+            .returns::<NdArray>(Tensor::from_floats([12.0, 15.0], &device), vec![true, true]);
         assert_eq!(returns.shape(), [6]);
     }
 
@@ -436,7 +436,7 @@ mod tests {
         let obs2 = Tensor::from_floats([[2.0, 3.0, 4.0], [3.0, 4.0, 5.0]], &device);
         let obs3 = Tensor::from_floats([[4.0, 5.0, 6.0], [5.0, 6.0, 7.0]], &device);
 
-        exp_buf.add_experience::<Wgpu>(
+        exp_buf.add_experience::<NdArray>(
             obs1,
             vec![0.1, 1.1],
             vec![1, 2],
@@ -445,7 +445,7 @@ mod tests {
             Tensor::from_floats([20.0, 21.0], &device),
         );
 
-        exp_buf.add_experience::<Wgpu>(
+        exp_buf.add_experience::<NdArray>(
             obs2,
             vec![1.1, 2.1],
             vec![2, 3],
@@ -454,7 +454,7 @@ mod tests {
             Tensor::from_floats([21.0, 22.0], &device),
         );
 
-        exp_buf.add_experience::<Wgpu>(
+        exp_buf.add_experience::<NdArray>(
             obs3,
             vec![2.1, 3.1],
             vec![3, 4],
@@ -463,8 +463,8 @@ mod tests {
             Tensor::from_floats([22.0, 23.0], &device),
         );
 
-        let returns =
-            exp_buf.returns::<Wgpu>(Tensor::from_floats([12.0, 15.0], &device), vec![true, true]);
+        let returns = exp_buf
+            .returns::<NdArray>(Tensor::from_floats([12.0, 15.0], &device), vec![true, true]);
         let ret = returns.as_slice().unwrap();
         print!("ret {ret:?}");
         assert!(ret[0] > 3.708 && ret[0] < 3.7081);

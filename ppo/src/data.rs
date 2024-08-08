@@ -99,7 +99,7 @@ impl<B: Backend> Batcher<Experience, ExperienceBatch<B>> for ExperienceBatcher<B
 
 #[cfg(test)]
 mod tests {
-    use burn::{backend::Wgpu, data::dataloader::DataLoaderBuilder};
+    use burn::{backend::NdArray, data::dataloader::DataLoaderBuilder};
 
     use crate::common::ExperienceBuffer;
 
@@ -112,7 +112,7 @@ mod tests {
         let device = Default::default();
 
         let obs1 = Tensor::from_floats([[0.0, 1.0, 2.0], [1.0, 2.0, 3.0]], &device);
-        exp_buf.add_experience::<Wgpu>(
+        exp_buf.add_experience::<NdArray>(
             obs1,
             vec![0.1, 1.1],
             vec![1, 2],
@@ -123,8 +123,8 @@ mod tests {
 
         let (observations, actions, values, neglogps) = exp_buf.training_views();
 
-        let returns =
-            exp_buf.returns::<Wgpu>(Tensor::from_floats([12.0, 15.0], &device), vec![true, true]);
+        let returns = exp_buf
+            .returns::<NdArray>(Tensor::from_floats([12.0, 15.0], &device), vec![true, true]);
 
         let training_view = TrainingView {
             observations,
@@ -134,7 +134,7 @@ mod tests {
             returns,
         };
 
-        let batcher = ExperienceBatcher::<Wgpu>::new(device.clone());
+        let batcher = ExperienceBatcher::<NdArray>::new(device.clone());
         let dataloader = DataLoaderBuilder::new(batcher)
             .batch_size(1)
             .shuffle(123)

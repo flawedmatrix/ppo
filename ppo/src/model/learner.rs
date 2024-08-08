@@ -115,7 +115,7 @@ fn dist_entropy<B: Backend>(logits: Tensor<B, 2>) -> Tensor<B, 1> {
 
 #[cfg(test)]
 mod tests {
-    use burn::backend::Wgpu;
+    use burn::backend::NdArray;
 
     use super::*;
 
@@ -126,9 +126,11 @@ mod tests {
         let e = 1f32.exp();
         let e2 = 2f32.exp();
         // Batch size = 5, Num actions = 2
-        let logits =
-            Tensor::<Wgpu, 2>::from_floats([[e, e2], [e2, e], [e, e2], [e2, e], [e2, e]], &device);
-        let actions = Tensor::<Wgpu, 1, Int>::from_ints([1, 0, 0, 1, 0], &device);
+        let logits = Tensor::<NdArray, 2>::from_floats(
+            [[e, e2], [e2, e], [e, e2], [e2, e], [e2, e]],
+            &device,
+        );
+        let actions = Tensor::<NdArray, 1, Int>::from_ints([1, 0, 0, 1, 0], &device);
 
         let neglogps = neglog_probs(logits, actions);
         assert_eq!(neglogps.dims(), [5]);
@@ -143,7 +145,7 @@ mod tests {
     fn test_dist_entropy() {
         let device = Default::default();
 
-        let logits = Tensor::<Wgpu, 2>::from_floats(
+        let logits = Tensor::<NdArray, 2>::from_floats(
             [[1., 2.], [3., 5.], [8., 13.], [21., 34.], [55., 89.]],
             &device,
         );
