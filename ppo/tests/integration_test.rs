@@ -47,7 +47,7 @@ fn training_lifecycle() {
         .with_num_envs(10);
 
     type TrainingBackend = Autodiff<NdArray>;
+    let device = Default::default();
 
-    println!("Starting training...");
-    train::<_, _, TrainingBackend, 10, 3, 3>(init_state, training_config, "temp/");
+    train::<_, _, TrainingBackend, 10, 3, 3>(init_state, training_config, "temp/", &device);
 }

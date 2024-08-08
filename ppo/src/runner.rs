@@ -132,13 +132,12 @@ where
 
     /// Returns the current state of all the envs, represented as a 2D tensor:
     /// [NUM_ENVS, OBS_SIZE]
-    pub fn current_state<B: Backend>(&self) -> Tensor<B, 2> {
+    pub fn current_state<B: Backend>(&self, device: &B::Device) -> Tensor<B, 2> {
         let mut data: Vec<f32> = Vec::new();
         for env in self.envs.iter() {
             data.extend_from_slice(&env.as_vector());
         }
-        let device = Default::default();
-        Tensor::<B, 1>::from_floats(data.as_slice(), &device).reshape([self.envs.len(), OBS_SIZE])
+        Tensor::<B, 1>::from_floats(data.as_slice(), device).reshape([self.envs.len(), OBS_SIZE])
     }
 }
 
@@ -197,7 +196,7 @@ mod tests {
         );
 
         runner
-            .current_state::<NdArray>()
+            .current_state::<NdArray>(&device)
             .to_data()
             .assert_eq(&expected.to_data(), true);
 
@@ -212,7 +211,7 @@ mod tests {
         );
 
         runner
-            .current_state::<NdArray>()
+            .current_state::<NdArray>(&device)
             .to_data()
             .assert_eq(&expected.to_data(), true);
 
@@ -227,7 +226,7 @@ mod tests {
             &device,
         );
         runner
-            .current_state::<NdArray>()
+            .current_state::<NdArray>(&device)
             .to_data()
             .assert_eq(&expected.to_data(), true);
 
@@ -241,7 +240,7 @@ mod tests {
             &device,
         );
         runner
-            .current_state::<NdArray>()
+            .current_state::<NdArray>(&device)
             .to_data()
             .assert_eq(&expected.to_data(), true);
     }
@@ -264,7 +263,7 @@ mod tests {
             &device,
         );
         runner
-            .current_state::<NdArray>()
+            .current_state::<NdArray>(&device)
             .to_data()
             .assert_eq(&expected.to_data(), true);
 
@@ -279,7 +278,7 @@ mod tests {
             &device,
         );
         runner
-            .current_state::<NdArray>()
+            .current_state::<NdArray>(&device)
             .to_data()
             .assert_eq(&expected.to_data(), true);
     }

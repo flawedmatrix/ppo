@@ -59,12 +59,12 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
     init_env_state: T,
     config: TrainingConfig,
     model_path: P,
+    device: &B::Device,
 ) where
     T: Environment<OBS_SIZE, NUM_ACTIONS>,
     P: AsRef<std::path::Path>,
     B: AutodiffBackend,
 {
-    let device = Default::default();
     let mut exp_buf: ExperienceBuffer<NUM_ENVS, OBS_SIZE> = ExperienceBuffer::new(config.num_steps);
 
     let mut rng = rand::thread_rng();
@@ -73,7 +73,7 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
 
     println!("Instantiating model with config {config:?}");
     let mut learner = Learner {
-        model: config.model_config.init(&device),
+        model: config.model_config.init(device),
         optim: AdamConfig::new()
             .with_grad_clipping(Some(GradientClippingConfig::Norm(
                 config.model_config.max_grad_norm,
@@ -91,7 +91,7 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
     if model_path.exists() {
         println!("Loading checkpoint from path {:?}", model_path);
         let record = recorder
-            .load(model_path.to_path_buf(), &device)
+            .load(model_path.to_path_buf(), device)
             .expect("Should be able to load the model weights from the provided file");
         learner.model = learner.model.load_record(record);
     }
@@ -123,14 +123,14 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
         let mut eprews: Vec<Vec<f32>> = Vec::new();
         let mut eplens: Vec<Vec<i64>> = Vec::new();
 
-        let mut last_critic = Tensor::<B, 1>::zeros([NUM_ENVS], &device);
+        let mut last_critic = Tensor::<B, 1>::zeros([NUM_ENVS], device);
 
         for _ in 0..config.num_steps {
-            let obs = runner.current_state();
+            let obs = runner.current_state(device);
             let (critic, actions, neglogps) =
                 learner
                     .model
-                    .infer::<NUM_ACTIONS>(obs.clone(), None, true, &device);
+                    .infer::<NUM_ACTIONS>(obs.clone(), None, true, device);
 
             let run_step = runner.step(&actions);
             exp_buf.add_experience(
