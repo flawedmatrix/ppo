@@ -114,6 +114,14 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
 
     let mut runner: VecRunner<T, OBS_SIZE, NUM_ACTIONS> = VecRunner::new(init_env_state, NUM_ENVS);
 
+    println!("Running first pass (may be slow while shaders are compiled)");
+    let (_, _, _) =
+        learner
+            .model
+            .infer::<NUM_ACTIONS>(runner.current_state(device), None, true, device);
+
+    println!("First pass finished");
+
     let mut high_score: f32 = -9999.0;
 
     for i in 1..=config.num_epochs {
