@@ -1,5 +1,6 @@
 use burn::{nn::Linear, prelude::*, tensor::Distribution};
 use nn::Relu;
+use tracing::trace_span;
 
 #[derive(Module, Debug)]
 pub struct PolicyModel<B: Backend> {
@@ -18,18 +19,26 @@ impl<B: Backend> PolicyModel<B> {
     ///  - Critic: [batch_size]
     ///  - Actor: [batch_size, NUM_ACTIONS]
     pub fn forward(&self, obs: Tensor<B, 2>) -> (Tensor<B, 1>, Tensor<B, 2>) {
-        let mut x = self.input.forward(obs); // [batch_size, hidden_dim]
-        x = self.activation.forward(x);
+        let mut x = trace_span!("input.forward").in_scope(|| {
+            let x = self.input.forward(obs); // [batch_size, hidden_dim]
+            self.activation.forward(x)
+        });
 
         for layer in &self.hidden {
-            x = layer.forward(x); // [batch_size, hidden_dim]
-            x = self.activation.forward(x);
+            x = trace_span!("hidden.forward").in_scope(|| {
+                let x = layer.forward(x); // [batch_size, hidden_dim]
+                self.activation.forward(x)
+            });
         }
-        let x = self.output.forward(x); //  [batch_size, num_actions + 1]
+
+        x = trace_span!("output.forward").in_scope(|| self.output.forward(x)); //  [batch_size, num_actions + 1]
         let [batch_size, num_actions_p1] = x.dims();
 
-        let critic = x.clone().slice([0..batch_size, 0..1]).reshape([-1]);
-        let actor = x.slice([0..batch_size, 1..num_actions_p1]);
+        let (critic, actor) = trace_span!("output.split").in_scope(|| {
+            let critic = x.clone().slice([0..batch_size, 0..1]).reshape([-1]);
+            let actor = x.slice([0..batch_size, 1..num_actions_p1]);
+            (critic, actor)
+        });
 
         (critic, actor)
     }

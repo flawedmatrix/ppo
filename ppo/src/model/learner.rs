@@ -3,6 +3,7 @@ use burn::{
     prelude::*,
     tensor::{activation::log_softmax, backend::AutodiffBackend},
 };
+use tracing::{instrument, trace_span};
 
 use crate::data::ExperienceBatch;
 
@@ -22,11 +23,13 @@ pub struct Learner<B: AutodiffBackend> {
     pub model: PolicyModel<B>,
     pub optim: OptimizerAdaptor<Adam<B::InnerBackend>, PolicyModel<B>, B>,
 
+    pub span: tracing::Span,
     pub config: ModelConfig,
 }
 
 impl<B: AutodiffBackend> Learner<B> {
-    pub fn step(self, batch: ExperienceBatch<B>) -> (Self, TrainingStats) {
+    pub fn step(&mut self, batch: ExperienceBatch<B>) -> TrainingStats {
+        let _enter = self.span.enter();
         let mut stats = TrainingStats::default();
 
         let batch_size = batch.observations.dims()[0];
@@ -36,10 +39,14 @@ impl<B: AutodiffBackend> Learner<B> {
         let neglogps = neglog_probs(policy_latent.clone(), batch.actions);
 
         let nlp_diff = neglogps - batch.neglogps;
-        stats.approxkl = nlp_diff.clone().powi_scalar(2).mean().into_scalar().elem();
+        trace_span!("approxkl").in_scope(|| {
+            stats.approxkl = nlp_diff.clone().powi_scalar(2).mean().into_scalar().elem();
+        });
 
         let entropy = dist_entropy(policy_latent.clone()).mean();
-        stats.entropy = entropy.clone().into_scalar().elem();
+        trace_span!("entropy").in_scope(|| {
+            stats.entropy = entropy.clone().into_scalar().elem();
+        });
 
         let values_clipped = (values.clone() - batch.values.clone())
             .clamp(-self.config.clip_range, self.config.clip_range)
@@ -53,47 +60,44 @@ impl<B: AutodiffBackend> Learner<B> {
 
         let ratio = (-nlp_diff).exp();
 
-        stats.clipfrac = {
-            let gt_mask = (ratio.clone() - 1.0)
-                .abs()
-                .greater_elem(self.config.clip_range);
-            gt_mask.int().sum().into_scalar().elem::<i32>() as f32 / batch_size as f32
-        };
+        trace_span!("clip_frac").in_scope(|| {
+            stats.clipfrac = {
+                let gt_mask = (ratio.clone() - 1.0)
+                    .abs()
+                    .greater_elem(self.config.clip_range);
+                gt_mask.int().sum().into_scalar().elem::<i32>() as f32 / batch_size as f32
+            };
+        });
 
-        let advs = {
+        let advs = trace_span!("advs").in_scope(|| {
             let a = batch.returns.clone() - batch.values.clone();
             let (a_var, a_mean) = a.clone().var_mean(0);
             (a - a_mean) / (a_var + 1e-8)
-        };
+        });
 
         let pg_losses1 = ratio.clone() * -advs.clone();
         let pg_losses2 =
             ratio.clamp(1.0 - self.config.clip_range, 1.0 + self.config.clip_range) * -advs;
         let pg_loss = pg_losses1.max_pair(pg_losses2).mean();
 
-        stats.pg_loss = pg_loss.clone().into_scalar().elem();
+        trace_span!("pg_loss").in_scope(|| {
+            stats.pg_loss = pg_loss.clone().into_scalar().elem();
+        });
 
         let loss = pg_loss - (entropy * self.config.entropy_coefficient)
             + (vf_loss * self.config.vf_coefficient);
 
-        let grads = loss.backward();
+        let grads = trace_span!("loss.backward").in_scope(|| loss.backward());
 
-        let model = self.model;
-        let mut optim = self.optim;
-        let grads = GradientsParams::from_grads(grads, &model);
-        let model = optim.step(self.config.lr, model, grads);
+        let grads = GradientsParams::from_grads(grads, &self.model);
+        self.model = trace_span!("optim.step")
+            .in_scope(|| self.optim.step(self.config.lr, self.model.clone(), grads));
 
-        (
-            Learner {
-                model,
-                optim,
-                config: self.config,
-            },
-            stats,
-        )
+        stats
     }
 }
 
+#[instrument]
 pub(super) fn neglog_probs<B: Backend>(
     logits: Tensor<B, 2>,
     actions: Tensor<B, 1, Int>,
@@ -103,6 +107,7 @@ pub(super) fn neglog_probs<B: Backend>(
     -(log_probs.gather(1, actions.unsqueeze_dim(1))).squeeze(1)
 }
 
+#[instrument]
 fn dist_entropy<B: Backend>(logits: Tensor<B, 2>) -> Tensor<B, 1> {
     let logits = logits.detach();
     let logits_max = logits.clone().max_dim(1);

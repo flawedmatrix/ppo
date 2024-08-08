@@ -8,6 +8,7 @@ use burn::{
 };
 use ndarray::{Array1, Axis};
 use rand::RngCore;
+use tracing::{info, span, Level};
 
 use crate::{
     common::ExperienceBuffer,
@@ -71,7 +72,7 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
     let seed: u64 = rng.next_u64();
     B::seed(seed);
 
-    println!("Instantiating model with config {config:?}");
+    info!("Instantiating model with config {config:?}");
     let mut learner = Learner {
         model: config.model_config.init(device),
         optim: AdamConfig::new()
@@ -79,17 +80,17 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
                 config.model_config.max_grad_norm,
             )))
             .init(),
-
+        span: span!(Level::TRACE, "learner.step"),
         config: config.model_config,
     };
-    println!("Model instantiated.");
+    info!("Model instantiated.");
 
     let recorder = NamedMpkFileRecorder::<FullPrecisionSettings>::new();
 
     let model_path = model_path.as_ref();
 
     if model_path.exists() {
-        println!("Loading checkpoint from path {:?}", model_path);
+        info!("Loading checkpoint from path {:?}", model_path);
         let record = recorder
             .load(model_path.to_path_buf(), device)
             .expect("Should be able to load the model weights from the provided file");
@@ -98,29 +99,29 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
 
     let checkpoint_path = if model_path.is_file() && model_path.parent().is_some_and(|p| p.exists())
     {
-        println!(
+        info!(
             "Storing checkpoints in parent path of model : {}",
             model_path.parent().unwrap().display()
         );
         model_path.parent().unwrap().to_owned()
     } else if model_path.is_dir() && model_path.exists() {
-        println!("Storing checkpoints in path: {}", model_path.display());
+        info!("Storing checkpoints in path: {}", model_path.display());
         model_path.to_owned()
     } else {
-        println!("Model path does not exist. Storing checkpoints in $CWD/checkpoints/");
+        info!("Model path does not exist. Storing checkpoints in $CWD/checkpoints/");
         let cwd = std::env::current_dir().expect("Could not access current working directory.");
         cwd.join("checkpoints/")
     };
 
     let mut runner: VecRunner<T, OBS_SIZE, NUM_ACTIONS> = VecRunner::new(init_env_state, NUM_ENVS);
 
-    println!("Running first pass (may be slow while shaders are compiled)");
+    info!("Running first pass (may be slow while shaders are compiled)");
     let (_, _, _) =
         learner
             .model
             .infer::<NUM_ACTIONS>(runner.current_state(device), None, true, device);
 
-    println!("First pass finished");
+    info!("First pass finished");
 
     let mut high_score: f32 = -9999.0;
 
@@ -179,7 +180,7 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
         let mut stats = TrainingStats::default();
         for _ in 0..config.num_train_iterations {
             for batch in dataloader.iter() {
-                (learner, stats) = learner.step(batch);
+                stats = learner.step(batch);
             }
         }
         stats.explained_variance = explained_variance;
@@ -191,7 +192,7 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
         let avg_score = ep_scores.into_iter().sum::<f32>() / num_eps as f32;
 
         if (i > 10) && (avg_score > high_score) {
-            println!(
+            info!(
                 "New best score: Learning update {}, Num Eps {}, Avg Ep len {}, Avg Ep Score {}, Loss {:?}",
                 i, num_eps, avg_ep_len, avg_score, stats
             );
@@ -203,7 +204,7 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
             high_score = avg_score;
         }
         if i % 10 == 0 {
-            println!(
+            info!(
                 "Learning update {}, Num Eps {}, Avg Ep len {}, Avg Ep Score {}, Loss {:?}",
                 i, num_eps, avg_ep_len, avg_score, stats
             );

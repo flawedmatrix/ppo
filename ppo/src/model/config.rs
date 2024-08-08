@@ -28,10 +28,13 @@ pub struct ModelConfig {
     pub max_grad_norm: f32,
 
     #[config(default = 3e-4)]
+    /// Learning rate for the optimizer
     pub lr: f64,
     #[config(default = 2)]
+    /// Number of hidden layers to create
     pub num_hidden_layers: usize,
     #[config(default = 1024)]
+    /// Input/Output size of the hidden layers
     pub hidden_size: usize,
 }
 
