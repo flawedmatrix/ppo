@@ -30,4 +30,5 @@ pub trait Environment<const OBS_SIZE: usize, const NUM_ACTIONS: usize>:
     fn score(&self) -> f32;
 }
 
+pub use model::ModelConfig;
 pub use training::*;
