@@ -10,7 +10,7 @@ burn = { version = "0.14", features = [
     "ndarray",
     "fusion",
     "autodiff",
-], git = "https://github.com/tracel-ai/burn" }
+], git = "https://github.com/tracel-ai/burn", rev = "4e99ddecdf7bd9aeb22f81e47cb996543b0ff7e3" }
 ndarray = "0.15"
 rand = "0.8.5"
 rand_distr = "0.4.3"
