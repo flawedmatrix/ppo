@@ -80,22 +80,19 @@ impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OB
     /// Panics if the inputs are an incorrect size
     pub fn add_experience<B: Backend>(
         &mut self,
-        obs: Tensor<B, 2>,      // [NUM_ENVS, OBS_SIZE]
-        rewards: Vec<f32>,      // [NUM_ENVS]
-        actions: Vec<u32>,      // [NUM_ENVS]
-        vals: Tensor<B, 1>,     // [NUM_ENVS]
-        dones: Vec<bool>,       // [NUM_ENVS]
-        neglogps: Tensor<B, 1>, // [NUM_ENVS]
+        obs: Vec<[f32; OBS_SIZE]>, // [NUM_ENVS, OBS_SIZE]
+        rewards: Vec<f32>,         // [NUM_ENVS]
+        actions: Vec<u32>,         // [NUM_ENVS]
+        vals: Tensor<B, 1>,        // [NUM_ENVS]
+        dones: Vec<bool>,          // [NUM_ENVS]
+        neglogps: Tensor<B, 1>,    // [NUM_ENVS]
     ) {
         let idx = self.counter % self.capacity;
 
         let dones: Vec<f32> = dones.iter().map(|d| *d as u8 as f32).collect();
 
-        assert_eq!(obs.dims(), [NUM_ENVS, OBS_SIZE]);
-        let obs_data = obs.into_data();
-        self.obs
-            .index_view(idx)
-            .copy_from_slice(obs_data.as_slice().unwrap());
+        assert_eq!(obs.len(), NUM_ENVS);
+        self.obs.index_view(idx).copy_from_slice(obs.as_flattened());
 
         assert_eq!(rewards.len(), NUM_ENVS);
         self.rewards
@@ -245,7 +242,7 @@ mod tests {
 
         let device = Default::default();
 
-        let obs1 = Tensor::from_floats([[0.0, 1.0, 2.0], [1.0, 2.0, 3.0]], &device);
+        let obs1 = vec![[0.0, 1.0, 2.0], [1.0, 2.0, 3.0]];
         exp_buf.add_experience::<NdArray>(
             obs1,
             vec![0.1, 1.1],
@@ -280,9 +277,9 @@ mod tests {
 
         let device = Default::default();
 
-        let obs1 = Tensor::from_floats([[0.0, 1.0, 2.0], [1.0, 2.0, 3.0]], &device);
-        let obs2 = Tensor::from_floats([[2.0, 3.0, 4.0], [3.0, 4.0, 5.0]], &device);
-        let obs3 = Tensor::from_floats([[4.0, 5.0, 6.0], [5.0, 6.0, 7.0]], &device);
+        let obs1 = vec![[0.0, 1.0, 2.0], [1.0, 2.0, 3.0]];
+        let obs2 = vec![[2.0, 3.0, 4.0], [3.0, 4.0, 5.0]];
+        let obs3 = vec![[4.0, 5.0, 6.0], [5.0, 6.0, 7.0]];
 
         exp_buf.add_experience::<NdArray>(
             obs1,
@@ -344,11 +341,11 @@ mod tests {
 
         let device = Default::default();
 
-        let obs1 = Tensor::from_floats([[0.0, 1.0, 2.0], [1.0, 2.0, 3.0]], &device);
-        let obs2 = Tensor::from_floats([[2.0, 3.0, 4.0], [3.0, 4.0, 5.0]], &device);
-        let obs3 = Tensor::from_floats([[4.0, 5.0, 6.0], [5.0, 6.0, 7.0]], &device);
-        let obs4 = Tensor::from_floats([[5.0, 6.0, 7.0], [6.0, 7.0, 8.0]], &device);
-        let obs5 = Tensor::from_floats([[6.0, 7.0, 8.0], [7.0, 8.0, 9.0]], &device);
+        let obs1 = vec![[0.0, 1.0, 2.0], [1.0, 2.0, 3.0]];
+        let obs2 = vec![[2.0, 3.0, 4.0], [3.0, 4.0, 5.0]];
+        let obs3 = vec![[4.0, 5.0, 6.0], [5.0, 6.0, 7.0]];
+        let obs4 = vec![[5.0, 6.0, 7.0], [6.0, 7.0, 8.0]];
+        let obs5 = vec![[6.0, 7.0, 8.0], [7.0, 8.0, 9.0]];
 
         exp_buf.add_experience::<NdArray>(
             obs1,
@@ -432,9 +429,9 @@ mod tests {
 
         let device = Default::default();
 
-        let obs1 = Tensor::from_floats([[0.0, 1.0, 2.0], [1.0, 2.0, 3.0]], &device);
-        let obs2 = Tensor::from_floats([[2.0, 3.0, 4.0], [3.0, 4.0, 5.0]], &device);
-        let obs3 = Tensor::from_floats([[4.0, 5.0, 6.0], [5.0, 6.0, 7.0]], &device);
+        let obs1 = vec![[0.0, 1.0, 2.0], [1.0, 2.0, 3.0]];
+        let obs2 = vec![[2.0, 3.0, 4.0], [3.0, 4.0, 5.0]];
+        let obs3 = vec![[4.0, 5.0, 6.0], [5.0, 6.0, 7.0]];
 
         exp_buf.add_experience::<NdArray>(
             obs1,

@@ -51,14 +51,16 @@ impl<B: Backend> PolicyModel<B> {
     ///  - Critic: [num_envs]
     ///  - Chosen Action: [num_envs]
     ///  - Negative Log Probs: [num_envs]
-    pub fn infer<const NUM_ACTIONS: usize>(
+    pub fn infer<const OBS_SIZE: usize, const NUM_ACTIONS: usize>(
         &self,
-        obs: Tensor<B, 2>,
+        obs: &[[f32; OBS_SIZE]],
         action_mask: Option<[bool; NUM_ACTIONS]>,
         randomize: bool,
         device: &B::Device,
     ) -> (Tensor<B, 1>, Vec<u32>, Tensor<B, 1>) {
-        let (critic, actor) = self.forward(obs);
+        let obs_tensor =
+            Tensor::<B, 1>::from_floats(obs.as_flattened(), device).reshape([obs.len(), OBS_SIZE]);
+        let (critic, actor) = self.forward(obs_tensor);
         let actor = match action_mask {
             Some(m) => {
                 let neg_mask =

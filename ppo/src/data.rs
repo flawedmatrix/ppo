@@ -111,7 +111,7 @@ mod tests {
 
         let device = Default::default();
 
-        let obs1 = Tensor::from_floats([[0.0, 1.0, 2.0], [1.0, 2.0, 3.0]], &device);
+        let obs1 = vec![[0.0, 1.0, 2.0], [1.0, 2.0, 3.0]];
         exp_buf.add_experience::<NdArray>(
             obs1,
             vec![0.1, 1.1],

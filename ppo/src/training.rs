@@ -120,7 +120,7 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
     let (_, _, _) =
         learner
             .model
-            .infer::<NUM_ACTIONS>(runner.current_state(device), None, true, device);
+            .infer::<OBS_SIZE, NUM_ACTIONS>(&runner.current_state(), None, true, device);
 
     info!("First pass finished");
 
@@ -136,11 +136,10 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
         let mut last_critic = Tensor::<B, 1>::zeros([NUM_ENVS], device);
 
         for _ in 0..config.num_steps {
-            let obs = runner.current_state(device);
-            let (critic, actions, neglogps) =
-                learner
-                    .model
-                    .infer::<NUM_ACTIONS>(obs.clone(), None, true, device);
+            let obs = runner.current_state();
+            let (critic, actions, neglogps) = learner
+                .model
+                .infer::<OBS_SIZE, NUM_ACTIONS>(&obs, None, true, device);
 
             let run_step = runner.step(&actions);
             exp_buf.add_experience(

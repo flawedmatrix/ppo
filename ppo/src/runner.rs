@@ -1,6 +1,5 @@
 use crate::common::RunningMeanStd;
 use crate::Environment;
-use burn::prelude::*;
 
 use ndarray::prelude::*;
 
@@ -132,19 +131,17 @@ where
 
     /// Returns the current state of all the envs, represented as a 2D tensor:
     /// [NUM_ENVS, OBS_SIZE]
-    pub fn current_state<B: Backend>(&self, device: &B::Device) -> Tensor<B, 2> {
-        let mut data: Vec<f32> = Vec::new();
+    pub fn current_state(&self) -> Vec<[f32; OBS_SIZE]> {
+        let mut data: Vec<[f32; OBS_SIZE]> = Vec::with_capacity(self.envs.len());
         for env in self.envs.iter() {
-            data.extend_from_slice(&env.as_vector());
+            data.push(env.as_vector());
         }
-        Tensor::<B, 1>::from_floats(data.as_slice(), device).reshape([self.envs.len(), OBS_SIZE])
+        data
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use burn::backend::NdArray;
-
     use super::*;
 
     #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
@@ -188,32 +185,16 @@ mod tests {
         assert_eq!(result.final_scores.len(), 0);
         assert_eq!(result.final_step_nums.len(), 0);
 
-        let device = Default::default();
-
-        let expected = Tensor::<NdArray, 2>::from_floats(
-            [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [1.0, 1.0, 1.0]],
-            &device,
-        );
-
-        runner
-            .current_state::<NdArray>(&device)
-            .to_data()
-            .assert_eq(&expected.to_data(), true);
+        let expected = vec![[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [1.0, 1.0, 1.0]];
+        assert_eq!(runner.current_state(), expected);
 
         let result = runner.step(&[1, 1, 1]);
         assert_eq!(result.dones, vec![false, false, false]);
         assert_eq!(result.final_scores.len(), 0);
         assert_eq!(result.final_step_nums.len(), 0);
 
-        let expected = Tensor::<NdArray, 2>::from_floats(
-            [[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [2.0, 2.0, 2.0]],
-            &device,
-        );
-
-        runner
-            .current_state::<NdArray>(&device)
-            .to_data()
-            .assert_eq(&expected.to_data(), true);
+        let expected = vec![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [2.0, 2.0, 2.0]];
+        assert_eq!(runner.current_state(), expected);
 
         // Expect any finished envs to be reset
         let result = runner.step(&[1, 1, 1]);
@@ -221,28 +202,16 @@ mod tests {
         assert_eq!(result.final_scores, vec![3.0]);
         assert_eq!(result.final_step_nums, vec![100]);
 
-        let expected = Tensor::<NdArray, 2>::from_floats(
-            [[2.0, 2.0, 2.0], [2.0, 2.0, 2.0], [0.0, 0.0, 0.0]],
-            &device,
-        );
-        runner
-            .current_state::<NdArray>(&device)
-            .to_data()
-            .assert_eq(&expected.to_data(), true);
+        let expected = vec![[2.0, 2.0, 2.0], [2.0, 2.0, 2.0], [0.0, 0.0, 0.0]];
+        assert_eq!(runner.current_state(), expected);
 
         let result = runner.step(&[0, 1, 1]);
         assert_eq!(result.dones, vec![false, true, false]);
         assert_eq!(result.final_scores, vec![3.0]);
         assert_eq!(result.final_step_nums, vec![100]);
 
-        let expected = Tensor::<NdArray, 2>::from_floats(
-            [[2.0, 2.0, 2.0], [0.0, 0.0, 0.0], [1.0, 1.0, 1.0]],
-            &device,
-        );
-        runner
-            .current_state::<NdArray>(&device)
-            .to_data()
-            .assert_eq(&expected.to_data(), true);
+        let expected = vec![[2.0, 2.0, 2.0], [0.0, 0.0, 0.0], [1.0, 1.0, 1.0]];
+        assert_eq!(runner.current_state(), expected);
     }
 
     #[test]
@@ -256,16 +225,8 @@ mod tests {
         assert_eq!(result.final_scores.len(), 0);
         assert_eq!(result.final_step_nums.len(), 0);
 
-        let device = Default::default();
-
-        let expected = Tensor::<NdArray, 2>::from_floats(
-            [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [1.0, 1.0, 1.0]],
-            &device,
-        );
-        runner
-            .current_state::<NdArray>(&device)
-            .to_data()
-            .assert_eq(&expected.to_data(), true);
+        let expected = vec![[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [1.0, 1.0, 1.0]];
+        assert_eq!(runner.current_state(), expected);
 
         // Using an invalid action resets the env
         let result = runner.step(&[1, 1, 2]);
@@ -273,13 +234,7 @@ mod tests {
         assert_eq!(result.final_scores, vec![-5.0]);
         assert_eq!(result.final_step_nums, vec![100]);
 
-        let expected = Tensor::<NdArray, 2>::from_floats(
-            [[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [0.0, 0.0, 0.0]],
-            &device,
-        );
-        runner
-            .current_state::<NdArray>(&device)
-            .to_data()
-            .assert_eq(&expected.to_data(), true);
+        let expected = vec![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [0.0, 0.0, 0.0]];
+        assert_eq!(runner.current_state(), expected);
     }
 }
