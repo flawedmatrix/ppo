@@ -57,7 +57,7 @@ impl<B: Backend> PolicyModel<B> {
         action_mask: Option<[bool; NUM_ACTIONS]>,
         randomize: bool,
         device: &B::Device,
-    ) -> (Tensor<B, 1>, Vec<u32>, Tensor<B, 1>) {
+    ) -> (Vec<f32>, Vec<u32>, Vec<f32>) {
         let obs_tensor =
             Tensor::<B, 1>::from_floats(obs.as_flattened(), device).reshape([obs.len(), OBS_SIZE]);
         let (critic, actor) = self.forward(obs_tensor);
@@ -85,6 +85,10 @@ impl<B: Backend> PolicyModel<B> {
 
         let actions_data = actions.to_data().convert::<u32>().to_vec::<u32>().unwrap();
 
-        (critic, actions_data, neglogps)
+        (
+            critic.to_data().to_vec().unwrap(),
+            actions_data,
+            neglogps.to_data().to_vec().unwrap(),
+        )
     }
 }

@@ -109,22 +109,19 @@ mod tests {
     fn batcher_sanity() {
         let mut exp_buf = ExperienceBuffer::<2, 3>::new(3);
 
-        let device = Default::default();
-
         let obs1 = vec![[0.0, 1.0, 2.0], [1.0, 2.0, 3.0]];
-        exp_buf.add_experience::<NdArray>(
-            obs1,
-            vec![0.1, 1.1],
-            vec![1, 2],
-            Tensor::from_floats([3.0, 6.0], &device),
-            vec![false, false],
-            Tensor::from_floats([20.0, 21.0], &device),
+        exp_buf.add_experience(
+            &obs1,
+            &[0.1, 1.1],
+            &[1, 2],
+            &[3.0, 6.0],
+            &[false, false],
+            &[20.0, 21.0],
         );
 
         let (observations, actions, values, neglogps) = exp_buf.training_views();
 
-        let returns = exp_buf
-            .returns::<NdArray>(Tensor::from_floats([12.0, 15.0], &device), vec![true, true]);
+        let returns = exp_buf.returns(&[12.0, 15.0], &[true, true]);
 
         let training_view = TrainingView {
             observations,
@@ -133,6 +130,8 @@ mod tests {
             neglogps,
             returns,
         };
+
+        let device = Default::default();
 
         let batcher = ExperienceBatcher::<NdArray>::new(device);
         let dataloader = DataLoaderBuilder::new(batcher)

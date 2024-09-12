@@ -133,7 +133,7 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
         let mut eprews: Vec<Vec<f32>> = Vec::new();
         let mut eplens: Vec<Vec<i64>> = Vec::new();
 
-        let mut last_critic = Tensor::<B, 1>::zeros([NUM_ENVS], device);
+        let mut last_critic: Vec<f32> = Vec::new();
 
         for _ in 0..config.num_steps {
             let obs = runner.current_state();
@@ -143,12 +143,12 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
 
             let run_step = runner.step(&actions);
             exp_buf.add_experience(
-                obs,
-                run_step.rewards,
-                actions,
-                critic.clone(),
-                dones,
-                neglogps,
+                &obs,
+                &run_step.rewards,
+                &actions,
+                &critic,
+                &dones,
+                &neglogps,
             );
 
             last_critic = critic;
@@ -157,7 +157,7 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
             eplens.push(run_step.final_step_nums);
         }
 
-        let returns = exp_buf.returns(last_critic, dones);
+        let returns = exp_buf.returns(&last_critic, &dones);
         let (observations, actions, values, neglogps) = exp_buf.training_views();
 
         let explained_variance = explained_variance(values.clone(), returns.clone());

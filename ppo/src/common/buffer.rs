@@ -1,4 +1,3 @@
-use burn::prelude::*;
 use ndarray::{prelude::*, RemoveAxis};
 
 trait IndexView<T> {
@@ -78,14 +77,14 @@ impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OB
     /// The neglogps from the last inference - [NUM_ENVS]
     ///
     /// Panics if the inputs are an incorrect size
-    pub fn add_experience<B: Backend>(
+    pub fn add_experience(
         &mut self,
-        obs: Vec<[f32; OBS_SIZE]>, // [NUM_ENVS, OBS_SIZE]
-        rewards: Vec<f32>,         // [NUM_ENVS]
-        actions: Vec<u32>,         // [NUM_ENVS]
-        vals: Tensor<B, 1>,        // [NUM_ENVS]
-        dones: Vec<bool>,          // [NUM_ENVS]
-        neglogps: Tensor<B, 1>,    // [NUM_ENVS]
+        obs: &[[f32; OBS_SIZE]], // [NUM_ENVS, OBS_SIZE]
+        rewards: &[f32],         // [NUM_ENVS]
+        actions: &[u32],         // [NUM_ENVS]
+        vals: &[f32],            // [NUM_ENVS]
+        dones: &[bool],          // [NUM_ENVS]
+        neglogps: &[f32],        // [NUM_ENVS]
     ) {
         let idx = self.counter % self.capacity;
 
@@ -95,29 +94,19 @@ impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OB
         self.obs.index_view(idx).copy_from_slice(obs.as_flattened());
 
         assert_eq!(rewards.len(), NUM_ENVS);
-        self.rewards
-            .index_view(idx)
-            .copy_from_slice(rewards.as_slice());
+        self.rewards.index_view(idx).copy_from_slice(rewards);
 
         assert_eq!(actions.len(), NUM_ENVS);
-        self.actions
-            .index_view(idx)
-            .copy_from_slice(actions.as_slice());
+        self.actions.index_view(idx).copy_from_slice(actions);
 
-        assert_eq!(vals.dims(), [NUM_ENVS]);
-        let vals_data = vals.into_data();
-        self.values
-            .index_view(idx)
-            .copy_from_slice(vals_data.as_slice().unwrap());
+        assert_eq!(vals.len(), NUM_ENVS);
+        self.values.index_view(idx).copy_from_slice(vals);
 
         assert_eq!(dones.len(), NUM_ENVS);
         self.dones.index_view(idx).copy_from_slice(&dones);
 
-        assert_eq!(neglogps.dims(), [NUM_ENVS]);
-        let neglogsp_data = neglogps.into_data();
-        self.neglogps
-            .index_view(idx)
-            .copy_from_slice(neglogsp_data.as_slice().unwrap());
+        assert_eq!(neglogps.len(), NUM_ENVS);
+        self.neglogps.index_view(idx).copy_from_slice(neglogps);
 
         self.counter += 1;
         if self.counter >= self.capacity {
@@ -186,15 +175,15 @@ impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OB
     ///
     /// Returns a Tensor that is equal to the length of the experience buffer
     /// [num_steps]
-    pub fn returns<B: Backend>(
+    pub fn returns(
         &self,
-        last_values: Tensor<B, 1>, // [NUM_ENVS]
-        last_dones: Vec<bool>,     // [NUM_ENVS]
+        last_values: &[f32], // [NUM_ENVS]
+        last_dones: &[bool], // [NUM_ENVS]
     ) -> Array1<f32> {
         let len = self.len();
         let num_steps = len * NUM_ENVS;
 
-        assert_eq!(last_values.dims(), [NUM_ENVS]);
+        assert_eq!(last_values.len(), NUM_ENVS);
         assert_eq!(last_dones.len(), NUM_ENVS);
 
         let mut lastgaelam: Array1<f32> = Array::zeros(NUM_ENVS);
@@ -205,8 +194,7 @@ impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OB
         let last_dones: Vec<f32> = last_dones.iter().map(|d| !*d as u8 as f32).collect();
 
         let last_nonterminal = arr1(&last_dones);
-        let last_values_data = last_values.into_data();
-        let last_values = arr1(last_values_data.as_slice().unwrap());
+        let last_values = arr1(last_values);
 
         for t in (0..len).rev() {
             // 1D arrays of length NUM_ENVS
@@ -232,24 +220,20 @@ impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OB
 
 #[cfg(test)]
 mod tests {
-    use burn::backend::NdArray;
-
     use super::*;
 
     #[test]
     fn exp_buffer_below_capacity() {
         let mut exp_buf: ExperienceBuffer<2, 3> = ExperienceBuffer::new(3);
 
-        let device = Default::default();
-
         let obs1 = vec![[0.0, 1.0, 2.0], [1.0, 2.0, 3.0]];
-        exp_buf.add_experience::<NdArray>(
-            obs1,
-            vec![0.1, 1.1],
-            vec![1, 2],
-            Tensor::from_floats([3.0, 6.0], &device),
-            vec![false, false],
-            Tensor::from_floats([20.0, 21.0], &device),
+        exp_buf.add_experience(
+            &obs1,
+            &[0.1, 1.1],
+            &[1, 2],
+            &[3.0, 6.0],
+            &[false, false],
+            &[20.0, 21.0],
         );
         let (obs, actions, values, neglogps) = exp_buf.training_views();
 
@@ -266,8 +250,7 @@ mod tests {
         assert_eq!(neglogps.shape(), [2]);
         assert_eq!(neglogps, array![20.0, 21.0]);
 
-        let returns = exp_buf
-            .returns::<NdArray>(Tensor::from_floats([12.0, 15.0], &device), vec![true, true]);
+        let returns = exp_buf.returns(&[12.0, 15.0], &[true, true]);
         assert_eq!(returns.shape(), [2]);
     }
 
@@ -275,37 +258,35 @@ mod tests {
     fn exp_buffer_at_capacity() {
         let mut exp_buf: ExperienceBuffer<2, 3> = ExperienceBuffer::new(3);
 
-        let device = Default::default();
-
         let obs1 = vec![[0.0, 1.0, 2.0], [1.0, 2.0, 3.0]];
         let obs2 = vec![[2.0, 3.0, 4.0], [3.0, 4.0, 5.0]];
         let obs3 = vec![[4.0, 5.0, 6.0], [5.0, 6.0, 7.0]];
 
-        exp_buf.add_experience::<NdArray>(
-            obs1,
-            vec![0.1, 1.1],
-            vec![1, 2],
-            Tensor::from_floats([3.0, 6.0], &device),
-            vec![false, false],
-            Tensor::from_floats([20.0, 21.0], &device),
+        exp_buf.add_experience(
+            &obs1,
+            &[0.1, 1.1],
+            &[1, 2],
+            &[3.0, 6.0],
+            &[false, false],
+            &[20.0, 21.0],
         );
 
-        exp_buf.add_experience::<NdArray>(
-            obs2,
-            vec![1.1, 2.1],
-            vec![2, 3],
-            Tensor::from_floats([6.0, 9.0], &device),
-            vec![false, false],
-            Tensor::from_floats([21.0, 22.0], &device),
+        exp_buf.add_experience(
+            &obs2,
+            &[1.1, 2.1],
+            &[2, 3],
+            &[6.0, 9.0],
+            &[false, false],
+            &[21.0, 22.0],
         );
 
-        exp_buf.add_experience::<NdArray>(
-            obs3,
-            vec![2.1, 3.1],
-            vec![3, 4],
-            Tensor::from_floats([9.0, 12.0], &device),
-            vec![false, false],
-            Tensor::from_floats([22.0, 23.0], &device),
+        exp_buf.add_experience(
+            &obs3,
+            &[2.1, 3.1],
+            &[3, 4],
+            &[9.0, 12.0],
+            &[false, false],
+            &[22.0, 23.0],
         );
 
         let (obs, actions, values, neglogps) = exp_buf.training_views();
@@ -339,60 +320,58 @@ mod tests {
         // The experience buffer should overwrite the oldest data first
         let mut exp_buf: ExperienceBuffer<2, 3> = ExperienceBuffer::new(3);
 
-        let device = Default::default();
-
         let obs1 = vec![[0.0, 1.0, 2.0], [1.0, 2.0, 3.0]];
         let obs2 = vec![[2.0, 3.0, 4.0], [3.0, 4.0, 5.0]];
         let obs3 = vec![[4.0, 5.0, 6.0], [5.0, 6.0, 7.0]];
         let obs4 = vec![[5.0, 6.0, 7.0], [6.0, 7.0, 8.0]];
         let obs5 = vec![[6.0, 7.0, 8.0], [7.0, 8.0, 9.0]];
 
-        exp_buf.add_experience::<NdArray>(
-            obs1,
-            vec![0.1, 1.1],
-            vec![1, 2],
-            Tensor::from_floats([3.0, 6.0], &device),
-            vec![false, false],
-            Tensor::from_floats([20.0, 21.0], &device),
+        exp_buf.add_experience(
+            &obs1,
+            &[0.1, 1.1],
+            &[1, 2],
+            &[3.0, 6.0],
+            &[false, false],
+            &[20.0, 21.0],
         );
 
         for _ in 0..(3 * 456 - 2) {
-            exp_buf.add_experience::<NdArray>(
-                obs2.clone(),
-                vec![1.1, 2.1],
-                vec![2, 3],
-                Tensor::from_floats([6.0, 9.0], &device),
-                vec![false, false],
-                Tensor::from_floats([21.0, 22.0], &device),
+            exp_buf.add_experience(
+                &obs2,
+                &[1.1, 2.1],
+                &[2, 3],
+                &[6.0, 9.0],
+                &[false, false],
+                &[21.0, 22.0],
             );
         }
 
         // Should end up in the third slot
-        exp_buf.add_experience::<NdArray>(
-            obs3,
-            vec![2.1, 3.1],
-            vec![3, 4],
-            Tensor::from_floats([9.0, 12.0], &device),
-            vec![false, false],
-            Tensor::from_floats([22.0, 23.0], &device),
+        exp_buf.add_experience(
+            &obs3,
+            &[2.1, 3.1],
+            &[3, 4],
+            &[9.0, 12.0],
+            &[false, false],
+            &[22.0, 23.0],
         );
 
-        exp_buf.add_experience::<NdArray>(
-            obs4,
-            vec![3.1, 4.1],
-            vec![4, 5],
-            Tensor::from_floats([12.0, 15.0], &device),
-            vec![false, false],
-            Tensor::from_floats([23.0, 24.0], &device),
+        exp_buf.add_experience(
+            &obs4,
+            &[3.1, 4.1],
+            &[4, 5],
+            &[12.0, 15.0],
+            &[false, false],
+            &[23.0, 24.0],
         );
 
-        exp_buf.add_experience::<NdArray>(
-            obs5,
-            vec![4.1, 5.1],
-            vec![5, 6],
-            Tensor::from_floats([15.0, 18.0], &device),
-            vec![false, true],
-            Tensor::from_floats([24.0, 25.0], &device),
+        exp_buf.add_experience(
+            &obs5,
+            &[4.1, 5.1],
+            &[5, 6],
+            &[15.0, 18.0],
+            &[false, true],
+            &[24.0, 25.0],
         );
 
         let (obs, actions, values, neglogps) = exp_buf.training_views();
@@ -418,8 +397,7 @@ mod tests {
         assert_eq!(neglogps.shape(), [6]);
         assert_eq!(neglogps, array![23.0, 24.0, 24.0, 25.0, 22.0, 23.0]);
 
-        let returns = exp_buf
-            .returns::<NdArray>(Tensor::from_floats([12.0, 15.0], &device), vec![true, true]);
+        let returns = exp_buf.returns(&[12.0, 15.0], &[true, true]);
         assert_eq!(returns.shape(), [6]);
     }
 
@@ -427,41 +405,38 @@ mod tests {
     fn exp_buffer_returns_sanity() {
         let mut exp_buf: ExperienceBuffer<2, 3> = ExperienceBuffer::new(3);
 
-        let device = Default::default();
-
         let obs1 = vec![[0.0, 1.0, 2.0], [1.0, 2.0, 3.0]];
         let obs2 = vec![[2.0, 3.0, 4.0], [3.0, 4.0, 5.0]];
         let obs3 = vec![[4.0, 5.0, 6.0], [5.0, 6.0, 7.0]];
 
-        exp_buf.add_experience::<NdArray>(
-            obs1,
-            vec![0.1, 1.1],
-            vec![1, 2],
-            Tensor::from_floats([3.0, 6.0], &device),
-            vec![false, false],
-            Tensor::from_floats([20.0, 21.0], &device),
+        exp_buf.add_experience(
+            &obs1,
+            &[0.1, 1.1],
+            &[1, 2],
+            &[3.0, 6.0],
+            &[false, false],
+            &[20.0, 21.0],
         );
 
-        exp_buf.add_experience::<NdArray>(
-            obs2,
-            vec![1.1, 2.1],
-            vec![2, 3],
-            Tensor::from_floats([6.0, 9.0], &device),
-            vec![false, false],
-            Tensor::from_floats([21.0, 22.0], &device),
+        exp_buf.add_experience(
+            &obs2,
+            &[1.1, 2.1],
+            &[2, 3],
+            &[6.0, 9.0],
+            &[false, false],
+            &[21.0, 22.0],
         );
 
-        exp_buf.add_experience::<NdArray>(
-            obs3,
-            vec![2.1, 3.1],
-            vec![3, 4],
-            Tensor::from_floats([9.0, 12.0], &device),
-            vec![false, false],
-            Tensor::from_floats([22.0, 23.0], &device),
+        exp_buf.add_experience(
+            &obs3,
+            &[2.1, 3.1],
+            &[3, 4],
+            &[9.0, 12.0],
+            &[false, false],
+            &[22.0, 23.0],
         );
 
-        let returns = exp_buf
-            .returns::<NdArray>(Tensor::from_floats([12.0, 15.0], &device), vec![true, true]);
+        let returns = exp_buf.returns(&[12.0, 15.0], &[true, true]);
         let ret = returns.as_slice().unwrap();
         print!("ret {ret:?}");
         assert!(ret[0] > 3.708 && ret[0] < 3.7081);
