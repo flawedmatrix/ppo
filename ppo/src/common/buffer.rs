@@ -34,6 +34,8 @@ pub struct ExperienceBuffer<const NUM_ENVS: usize, const OBS_SIZE: usize> {
     values: Array2<f32>,   // [capacity, NUM_ENVS]
     dones: Array2<f32>,    // [capacity, NUM_ENVS]
     neglogps: Array2<f32>, // [capacity, NUM_ENVS]
+
+    last_values_idx: usize,
 }
 
 impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OBS_SIZE> {
@@ -61,6 +63,8 @@ impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OB
             values: Array::zeros((capacity, NUM_ENVS)),
             dones: Array::zeros((capacity, NUM_ENVS)),
             neglogps: Array::zeros((capacity, NUM_ENVS)),
+
+            last_values_idx: 0,
         }
     }
 
@@ -107,6 +111,8 @@ impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OB
 
         assert_eq!(neglogps.len(), NUM_ENVS);
         self.neglogps.index_view(idx).copy_from_slice(neglogps);
+
+        self.last_values_idx = idx;
 
         self.counter += 1;
         if self.counter >= self.capacity {
@@ -180,13 +186,11 @@ impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OB
     /// [num_steps]
     pub fn returns(
         &self,
-        last_values: &[f32], // [NUM_ENVS]
         last_dones: &[bool], // [NUM_ENVS]
     ) -> Array1<f32> {
         let len = self.len();
         let num_steps = len * NUM_ENVS;
 
-        assert_eq!(last_values.len(), NUM_ENVS);
         assert_eq!(last_dones.len(), NUM_ENVS);
 
         let mut lastgaelam: Array1<f32> = Array::zeros(NUM_ENVS);
@@ -197,13 +201,13 @@ impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OB
         let last_dones: Vec<f32> = last_dones.iter().map(|d| !*d as u8 as f32).collect();
 
         let last_nonterminal = arr1(&last_dones);
-        let last_values = arr1(last_values);
+        let last_values = self.values.row(self.last_values_idx);
 
         for t in (0..len).rev() {
             // 1D arrays of length NUM_ENVS
             let (nextvalues, nextnonterminal) = {
                 if t == len - 1 {
-                    (last_values.view(), last_nonterminal.view())
+                    (last_values, last_nonterminal.view())
                 } else {
                     let idx = t + 1;
                     (self.values.row(idx), nonterminals.row(idx))
@@ -253,7 +257,7 @@ mod tests {
         assert_eq!(neglogps.shape(), [2]);
         assert_eq!(neglogps, array![20.0, 21.0]);
 
-        let returns = exp_buf.returns(&[12.0, 15.0], &[true, true]);
+        let returns = exp_buf.returns(&[true, true]);
         assert_eq!(returns.shape(), [2]);
     }
 
@@ -400,7 +404,7 @@ mod tests {
         assert_eq!(neglogps.shape(), [6]);
         assert_eq!(neglogps, array![23.0, 24.0, 24.0, 25.0, 22.0, 23.0]);
 
-        let returns = exp_buf.returns(&[12.0, 15.0], &[true, true]);
+        let returns = exp_buf.returns(&[true, true]);
         assert_eq!(returns.shape(), [6]);
     }
 
@@ -439,7 +443,7 @@ mod tests {
             &[22.0, 23.0],
         );
 
-        let returns = exp_buf.returns(&[12.0, 15.0], &[true, true]);
+        let returns = exp_buf.returns(&[true, true]);
         let ret = returns.as_slice().unwrap();
         print!("ret {ret:?}");
         assert!(ret[0] > 3.708 && ret[0] < 3.7081);

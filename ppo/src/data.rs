@@ -155,7 +155,7 @@ mod tests {
 
         let (observations, actions, values, neglogps) = exp_buf.training_views();
 
-        let returns = exp_buf.returns(&[12.0, 15.0], &[true, true]);
+        let returns = exp_buf.returns(&[true, true]);
 
         let device = Default::default();
 

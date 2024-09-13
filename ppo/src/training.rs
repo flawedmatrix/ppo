@@ -132,8 +132,6 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
         let mut eprews: Vec<Vec<f32>> = Vec::new();
         let mut eplens: Vec<Vec<i64>> = Vec::new();
 
-        let mut last_critic: Vec<f32> = Vec::new();
-
         for _ in 0..config.num_steps {
             let obs = runner.current_state();
             let (critic, actions, neglogps) = learner
@@ -150,13 +148,12 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
                 &neglogps,
             );
 
-            last_critic = critic;
             dones = run_step.dones;
             eprews.push(run_step.final_scores);
             eplens.push(run_step.final_step_nums);
         }
 
-        let returns = exp_buf.returns(&last_critic, &dones);
+        let returns = exp_buf.returns(&dones);
         let (observations, actions, values, neglogps) = exp_buf.training_views();
 
         let explained_variance = explained_variance(values, returns.view());
