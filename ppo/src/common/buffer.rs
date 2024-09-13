@@ -133,7 +133,14 @@ impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OB
     /// Actions - Int [num_steps]
     /// Values - Float [num_steps]
     /// Neglogps - Float [num_steps]
-    pub fn training_views(&self) -> (Array2<f32>, Array1<u32>, Array1<f32>, Array1<f32>) {
+    pub fn training_views(
+        &self,
+    ) -> (
+        ArrayView2<f32>,
+        ArrayView1<u32>,
+        ArrayView1<f32>,
+        ArrayView1<f32>,
+    ) {
         let len = self.len();
         let num_steps = len * NUM_ENVS;
 
@@ -141,26 +148,22 @@ impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OB
             .obs
             .slice(s![0..len, .., ..])
             .into_shape((num_steps, OBS_SIZE))
-            .unwrap()
-            .into_owned();
+            .unwrap();
         let actions = self
             .actions
             .slice(s![0..len, ..])
             .into_shape((num_steps,))
-            .unwrap()
-            .into_owned();
+            .unwrap();
         let values = self
             .values
             .slice(s![0..len, ..])
             .into_shape((num_steps,))
-            .unwrap()
-            .into_owned();
+            .unwrap();
         let neglogps = self
             .neglogps
             .slice(s![0..len, ..])
             .into_shape((num_steps,))
-            .unwrap()
-            .into_owned();
+            .unwrap();
 
         (obs, actions, values, neglogps)
     }
