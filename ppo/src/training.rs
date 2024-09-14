@@ -1,9 +1,9 @@
 use burn::{
+    backend::{wgpu::WgpuDevice, Autodiff, Wgpu},
     grad_clipping::GradientClippingConfig,
     optim::AdamConfig,
     prelude::*,
     record::{FullPrecisionSettings, NamedMpkFileRecorder, Recorder},
-    tensor::backend::AutodiffBackend,
 };
 use ndarray::{ArrayView1, Axis};
 use rand::RngCore;
@@ -56,25 +56,26 @@ fn explained_variance(predictions: ArrayView1<f32>, targets: ArrayView1<f32>) ->
     }
 }
 
-pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_ACTIONS: usize>(
+pub fn train<T, P, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_ACTIONS: usize>(
     init_env_state: T,
     config: TrainingConfig,
     model_path: P,
-    device: &B::Device,
 ) where
     T: Environment<OBS_SIZE, NUM_ACTIONS>,
     P: AsRef<std::path::Path>,
-    B: AutodiffBackend,
 {
     let mut exp_buf: ExperienceBuffer<NUM_ENVS, OBS_SIZE> = ExperienceBuffer::new(config.num_steps);
 
+    type TrainingBackend = Autodiff<Wgpu>;
+    let device = WgpuDevice::BestAvailable;
+
     let mut rng = rand::thread_rng();
     let seed: u64 = rng.next_u64();
-    B::seed(seed);
+    TrainingBackend::seed(seed);
 
     info!("Instantiating model with config {config:?}");
     let mut learner = Learner {
-        model: config.model_config.init(device),
+        model: config.model_config.init(&device),
         optim: AdamConfig::new()
             .with_grad_clipping(Some(GradientClippingConfig::Norm(
                 config.model_config.max_grad_norm,
@@ -92,7 +93,7 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
     if model_path.exists() {
         info!("Loading checkpoint from path {:?}", model_path);
         let record = recorder
-            .load(model_path.to_path_buf(), device)
+            .load(model_path.to_path_buf(), &device)
             .expect("Should be able to load the model weights from the provided file");
         learner.model = learner.model.load_record(record);
     }
@@ -115,14 +116,6 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
 
     let mut runner: VecRunner<T, OBS_SIZE, NUM_ACTIONS> = VecRunner::new(init_env_state, NUM_ENVS);
 
-    info!("Running first pass (may be slow while shaders are compiled)");
-    let (_, _, _) =
-        learner
-            .model
-            .infer::<OBS_SIZE, NUM_ACTIONS>(&runner.current_state(), None, true, device);
-
-    info!("First pass finished");
-
     let mut high_score: f32 = -9999.0;
 
     for i in 1..=config.num_epochs {
@@ -136,7 +129,7 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
             let obs = runner.current_state();
             let (critic, actions, neglogps) = learner
                 .model
-                .infer::<OBS_SIZE, NUM_ACTIONS>(&obs, None, true, device);
+                .infer::<OBS_SIZE, NUM_ACTIONS>(&obs, None, true, &device);
 
             let run_step = runner.step(&actions);
             exp_buf.add_experience(
@@ -158,7 +151,7 @@ pub fn train<T, P, B, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_AC
 
         let explained_variance = explained_variance(values, returns.view());
 
-        let exp_batcher = ExperienceBatcher::<B>::new(
+        let exp_batcher = ExperienceBatcher::<TrainingBackend>::new(
             observations,
             actions,
             values,

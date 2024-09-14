@@ -1,5 +1,3 @@
-use burn::backend::{Autodiff, NdArray};
-
 use ppo::{train, Environment, ModelConfig, TrainingConfig};
 
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
@@ -45,8 +43,5 @@ fn training_lifecycle() {
         .with_batch_size(2)
         .with_num_envs(10);
 
-    type TrainingBackend = Autodiff<NdArray>;
-    let device = Default::default();
-
-    train::<_, _, TrainingBackend, 10, 3, 3>(init_state, training_config, "temp/", &device);
+    train::<_, _, 10, 3, 3>(init_state, training_config, "temp/");
 }
