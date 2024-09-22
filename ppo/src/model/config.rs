@@ -15,6 +15,8 @@ pub struct ModelConfig {
     pub clip_range: f64,
     pub entropy_coefficient: f64,
     pub vf_coefficient: f64,
+
+    // TODO: Doesn't support gradient clipping yet
     pub max_grad_norm: f64,
 
     /// Learning rate for the optimizer
