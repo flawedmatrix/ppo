@@ -1,10 +1,5 @@
-use burn::{
-    backend::{wgpu::WgpuDevice, Autodiff, Wgpu},
-    grad_clipping::GradientClippingConfig,
-    optim::AdamConfig,
-    prelude::*,
-    record::{FullPrecisionSettings, NamedMpkFileRecorder, Recorder},
-};
+use candle_core::{DType, Device, Result};
+use candle_nn::{AdamW, Optimizer, ParamsAdamW, VarBuilder};
 use ndarray::{ArrayView1, Axis};
 use rand::RngCore;
 use tracing::{info, span, Level};
@@ -12,35 +7,77 @@ use tracing::{info, span, Level};
 use crate::{
     common::ExperienceBuffer,
     data::ExperienceBatcher,
-    model::{Learner, ModelConfig, TrainingStats},
+    model::{Learner, ModelConfig, PolicyModel, TrainingStats},
     runner::VecRunner,
     Environment,
 };
 
-#[derive(Config, Debug)]
+#[derive(Debug)]
 pub struct TrainingConfig {
-    #[config(default = 160)]
     /// Number of environments to run in parallel for each training pass
     pub num_envs: usize,
 
-    #[config(default = 32)]
     /// Number of action steps to train for in each update
     pub num_steps: usize,
 
-    #[config(default = 15000)]
     /// Number of training passes for the model
     pub num_epochs: usize,
 
-    #[config(default = 4)]
     /// Number of iterations during the model training pass
     pub num_train_iterations: usize,
 
-    #[config(default = 1280)]
     /// Number of experiences per batch of data used in a single iteration
     /// during the model training pass
     pub batch_size: usize,
 
     pub model_config: ModelConfig,
+}
+
+impl Default for TrainingConfig {
+    fn default() -> Self {
+        Self {
+            num_envs: 160,
+            num_steps: 32,
+            num_epochs: 15000,
+            num_train_iterations: 4,
+            batch_size: 1280,
+            model_config: ModelConfig::default(),
+        }
+    }
+}
+
+impl TrainingConfig {
+    pub fn new(model_config: ModelConfig) -> Self {
+        Self {
+            model_config,
+            ..Default::default()
+        }
+    }
+
+    pub fn with_num_envs(mut self, num_envs: usize) -> Self {
+        self.num_envs = num_envs;
+        self
+    }
+
+    pub fn with_num_steps(mut self, num_steps: usize) -> Self {
+        self.num_steps = num_steps;
+        self
+    }
+
+    pub fn with_num_epochs(mut self, num_epochs: usize) -> Self {
+        self.num_epochs = num_epochs;
+        self
+    }
+
+    pub fn with_num_train_iterations(mut self, num_train_iterations: usize) -> Self {
+        self.num_train_iterations = num_train_iterations;
+        self
+    }
+
+    pub fn with_batch_size(mut self, batch_size: usize) -> Self {
+        self.batch_size = batch_size;
+        self
+    }
 }
 
 // Given targets and predicted values, compute a metric to determine how good
@@ -60,59 +97,62 @@ pub fn train<T, P, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_ACTIO
     init_env_state: T,
     config: TrainingConfig,
     model_path: P,
-) where
+) -> Result<()>
+where
     T: Environment<OBS_SIZE, NUM_ACTIONS>,
     P: AsRef<std::path::Path>,
 {
     let mut exp_buf: ExperienceBuffer<NUM_ENVS, OBS_SIZE> = ExperienceBuffer::new(config.num_steps);
 
-    type TrainingBackend = Autodiff<Wgpu>;
-    let device = WgpuDevice::BestAvailable;
+    let device = Device::cuda_if_available(0)?;
 
     let mut rng = rand::thread_rng();
     let seed: u64 = rng.next_u64();
-    TrainingBackend::seed(seed);
+    device.set_seed(seed)?;
+
+    let vars = crate::model::VarMap::new();
+    let vb = VarBuilder::from_backend(Box::new(vars.clone()), DType::F32, device.clone());
+
+    // let model_path = model_path.as_ref();
+
+    // if model_path.exists() {
+    //     info!("Loading checkpoint from path {:?}", model_path);
+    //     let record = recorder
+    //         .load(model_path.to_path_buf(), &device)
+    //         .expect("Should be able to load the model weights from the provided file");
+    //     learner.model = learner.model.load_record(record);
+    // }
+
+    let optimizer_params = ParamsAdamW {
+        lr: config.model_config.lr,
+        weight_decay: 0.0,
+        ..Default::default()
+    };
 
     info!("Instantiating model with config {config:?}");
     let mut learner = Learner {
-        model: config.model_config.init(&device),
-        optim: AdamConfig::new()
-            .with_grad_clipping(Some(GradientClippingConfig::Norm(
-                config.model_config.max_grad_norm,
-            )))
-            .init(),
+        model: PolicyModel::new(config.model_config, vb)?,
+        optim: AdamW::new(vars.all_vars(), optimizer_params)?,
         span: span!(Level::TRACE, "learner.step"),
         config: config.model_config,
     };
     info!("Model instantiated.");
 
-    let recorder = NamedMpkFileRecorder::<FullPrecisionSettings>::new();
-
-    let model_path = model_path.as_ref();
-
-    if model_path.exists() {
-        info!("Loading checkpoint from path {:?}", model_path);
-        let record = recorder
-            .load(model_path.to_path_buf(), &device)
-            .expect("Should be able to load the model weights from the provided file");
-        learner.model = learner.model.load_record(record);
-    }
-
-    let checkpoint_path = if model_path.is_file() && model_path.parent().is_some_and(|p| p.exists())
-    {
-        info!(
-            "Storing checkpoints in parent path of model : {}",
-            model_path.parent().unwrap().display()
-        );
-        model_path.parent().unwrap().to_owned()
-    } else if model_path.is_dir() && model_path.exists() {
-        info!("Storing checkpoints in path: {}", model_path.display());
-        model_path.to_owned()
-    } else {
-        info!("Model path does not exist. Storing checkpoints in $CWD/checkpoints/");
-        let cwd = std::env::current_dir().expect("Could not access current working directory.");
-        cwd.join("checkpoints/")
-    };
+    // let checkpoint_path = if model_path.is_file() && model_path.parent().is_some_and(|p| p.exists())
+    // {
+    //     info!(
+    //         "Storing checkpoints in parent path of model : {}",
+    //         model_path.parent().unwrap().display()
+    //     );
+    //     model_path.parent().unwrap().to_owned()
+    // } else if model_path.is_dir() && model_path.exists() {
+    //     info!("Storing checkpoints in path: {}", model_path.display());
+    //     model_path.to_owned()
+    // } else {
+    //     info!("Model path does not exist. Storing checkpoints in $CWD/checkpoints/");
+    //     let cwd = std::env::current_dir().expect("Could not access current working directory.");
+    //     cwd.join("checkpoints/")
+    // };
 
     let mut runner: VecRunner<T, OBS_SIZE, NUM_ACTIONS> = VecRunner::new(init_env_state, NUM_ENVS);
 
@@ -127,9 +167,10 @@ pub fn train<T, P, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_ACTIO
 
         for _ in 0..config.num_steps {
             let obs = runner.current_state();
-            let (critic, actions, neglogps) = learner
-                .model
-                .infer::<OBS_SIZE, NUM_ACTIONS>(&obs, None, true, &device);
+            let (critic, actions, neglogps) =
+                learner
+                    .model
+                    .infer::<OBS_SIZE, NUM_ACTIONS>(&obs, None, true, device.clone())?;
 
             let run_step = runner.step(&actions);
             exp_buf.add_experience(
@@ -151,7 +192,7 @@ pub fn train<T, P, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_ACTIO
 
         let explained_variance = explained_variance(values, returns.view());
 
-        let exp_batcher = ExperienceBatcher::<TrainingBackend>::new(
+        let exp_batcher = ExperienceBatcher::new(
             observations,
             actions,
             values,
@@ -159,12 +200,12 @@ pub fn train<T, P, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_ACTIO
             returns.view(),
             config.batch_size,
             device.clone(),
-        );
+        )?;
 
         let mut stats = TrainingStats::default();
         for _ in 0..config.num_train_iterations {
             for batch in exp_batcher.into_iter() {
-                stats = learner.step(batch);
+                stats = learner.step(batch)?;
             }
         }
         stats.explained_variance = explained_variance;
@@ -180,11 +221,12 @@ pub fn train<T, P, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_ACTIO
                 "New best score: Learning update {}, Num Eps {}, Avg Ep len {}, Avg Ep Score {}, Loss {:?}",
                 i, num_eps, avg_ep_len, avg_score, stats
             );
-            learner
-                .model
-                .clone()
-                .save_file(checkpoint_path.join(format!("best_so_far_{i}")), &recorder)
-                .expect("Failed to save high score checkpoint");
+            info!("Skipping file save for now");
+            // learner
+            //     .model
+            //     .clone()
+            //     .save_file(checkpoint_path.join(format!("best_so_far_{i}")), &recorder)
+            //     .expect("Failed to save high score checkpoint");
             high_score = avg_score;
         }
         if i % 10 == 0 {
@@ -194,11 +236,14 @@ pub fn train<T, P, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_ACTIO
             );
         }
         if i % 100 == 0 || i == config.num_epochs {
-            learner
-                .model
-                .clone()
-                .save_file(checkpoint_path.join(format!("checkpoint_{i}")), &recorder)
-                .expect("Failed to save checkpoint");
+            info!("Skipping file save for now");
+            // learner
+            //     .model
+            //     .clone()
+            //     .save_file(checkpoint_path.join(format!("checkpoint_{i}")), &recorder)
+            //     .expect("Failed to save checkpoint");
         }
     }
+
+    Ok(())
 }

@@ -1,24 +1,25 @@
-use burn::prelude::*;
+use candle_core::{Device, Result, Tensor};
 use ndarray::{ArrayView1, ArrayView2};
 use rand::prelude::*;
+use tracing::error;
 
 #[derive(Clone, Debug)]
-pub struct ExperienceBatch<B: Backend> {
-    pub observations: Tensor<B, 2>,
-    pub actions: Tensor<B, 1, Int>,
-    pub values: Tensor<B, 1>,
-    pub neglogps: Tensor<B, 1>,
-    pub returns: Tensor<B, 1>,
+pub struct ExperienceBatch {
+    pub observations: Tensor, // [batch_size, obs_size]
+    pub actions: Tensor,      // [batch_size] (Ints)
+    pub values: Tensor,       // [batch_size]
+    pub neglogps: Tensor,     // [batch_size]
+    pub returns: Tensor,      // [batch_size]
 }
 
-pub struct ExperienceBatcher<B: Backend> {
-    set: ExperienceBatch<B>,
-    shuffled_indices: Vec<usize>,
+pub struct ExperienceBatcher {
+    set: ExperienceBatch,
+    shuffled_indices: Vec<u32>,
     batch_size: usize,
-    device: B::Device,
+    device: Device,
 }
 
-impl<B: Backend> ExperienceBatcher<B> {
+impl ExperienceBatcher {
     pub fn new(
         observations: ArrayView2<f32>,
         actions: ArrayView1<u32>,
@@ -26,47 +27,51 @@ impl<B: Backend> ExperienceBatcher<B> {
         neglogps: ArrayView1<f32>,
         returns: ArrayView1<f32>,
         batch_size: usize,
-        device: B::Device,
-    ) -> Self {
+        device: Device,
+    ) -> Result<Self> {
         let (buf_size, obs_size) = observations.dim();
         let set = ExperienceBatch {
-            observations: Tensor::<B, 1>::from_floats(
+            observations: Tensor::from_slice(
                 observations.as_standard_layout().as_slice().unwrap(),
+                &[buf_size, obs_size],
                 &device,
-            )
-            .reshape([buf_size, obs_size]),
-            actions: Tensor::<B, 1, Int>::from_ints(
+            )?,
+            actions: Tensor::from_slice(
                 actions.as_standard_layout().as_slice().unwrap(),
+                &[buf_size],
                 &device,
-            ),
-            values: Tensor::<B, 1>::from_floats(
+            )?,
+            values: Tensor::from_slice(
                 values.as_standard_layout().as_slice().unwrap(),
+                &[buf_size],
                 &device,
-            ),
-            neglogps: Tensor::<B, 1>::from_floats(
+            )?,
+            neglogps: Tensor::from_slice(
                 neglogps.as_standard_layout().as_slice().unwrap(),
+                &[buf_size],
                 &device,
-            ),
-            returns: Tensor::<B, 1>::from_floats(
+            )?,
+            returns: Tensor::from_slice(
                 returns.as_standard_layout().as_slice().unwrap(),
+                &[buf_size],
                 &device,
-            ),
+            )?,
         };
-        let mut indices: Vec<usize> = (0..buf_size).collect();
+        let mut indices: Vec<u32> = (0..buf_size as u32).collect();
         let mut rng = rand::thread_rng();
         indices.shuffle(&mut rng);
-        ExperienceBatcher {
+        Ok(Self {
             set,
             shuffled_indices: indices,
             batch_size,
             device,
-        }
+        })
     }
 }
 
-impl<'a, B: Backend> IntoIterator for &'a ExperienceBatcher<B> {
-    type Item = ExperienceBatch<B>;
-    type IntoIter = ExperienceBatcherIterator<'a, B>;
+impl<'a> IntoIterator for &'a ExperienceBatcher {
+    type Item = ExperienceBatch;
+    type IntoIter = ExperienceBatcherIterator<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
         ExperienceBatcherIterator {
@@ -76,16 +81,19 @@ impl<'a, B: Backend> IntoIterator for &'a ExperienceBatcher<B> {
     }
 }
 
-pub struct ExperienceBatcherIterator<'a, B: Backend> {
-    batcher: &'a ExperienceBatcher<B>,
+pub struct ExperienceBatcherIterator<'a> {
+    batcher: &'a ExperienceBatcher,
     iter_idx: usize,
 }
 
-impl<'a, B: Backend> Iterator for ExperienceBatcherIterator<'a, B> {
-    type Item = ExperienceBatch<B>;
-    fn next(&mut self) -> Option<Self::Item> {
+impl<'a> ExperienceBatcherIterator<'a> {
+    fn next_impl(&mut self) -> Result<ExperienceBatch> {
         if self.iter_idx >= self.batcher.shuffled_indices.len() {
-            return None;
+            return Err(candle_core::Error::InvalidIndex {
+                op: "ExperienceBatcherIterator::next",
+                index: self.iter_idx,
+                size: self.batcher.shuffled_indices.len(),
+            });
         }
         let start = self.iter_idx;
         let end = std::cmp::min(
@@ -93,37 +101,58 @@ impl<'a, B: Backend> Iterator for ExperienceBatcherIterator<'a, B> {
             self.batcher.shuffled_indices.len(),
         );
         let indices = &self.batcher.shuffled_indices[start..end];
-        let indices_tensor = Tensor::from_ints(indices, &self.batcher.device);
+        let indices_tensor = Tensor::from_slice(indices, &[indices.len()], &self.batcher.device)?;
 
         self.iter_idx += self.batcher.batch_size;
 
-        Some(ExperienceBatch {
+        Ok(ExperienceBatch {
             observations: self
                 .batcher
                 .set
                 .observations
                 .clone()
-                .select(0, indices_tensor.clone()),
+                .index_select(&indices_tensor, 0)?,
             actions: self
                 .batcher
                 .set
                 .actions
                 .clone()
-                .select(0, indices_tensor.clone()),
+                .index_select(&indices_tensor, 0)?,
             values: self
                 .batcher
                 .set
                 .values
                 .clone()
-                .select(0, indices_tensor.clone()),
+                .index_select(&indices_tensor, 0)?,
             neglogps: self
                 .batcher
                 .set
                 .neglogps
                 .clone()
-                .select(0, indices_tensor.clone()),
-            returns: self.batcher.set.returns.clone().select(0, indices_tensor),
+                .index_select(&indices_tensor, 0)?,
+            returns: self
+                .batcher
+                .set
+                .returns
+                .clone()
+                .index_select(&indices_tensor, 0)?,
         })
+    }
+}
+
+impl<'a> Iterator for ExperienceBatcherIterator<'a> {
+    type Item = ExperienceBatch;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.iter_idx >= self.batcher.shuffled_indices.len() {
+            return None;
+        }
+        match self.next_impl() {
+            Ok(batch) => Some(batch),
+            Err(e) => {
+                error!("Error in ExperienceBatcherIterator::next: {:?}", e);
+                None
+            }
+        }
     }
 }
 
@@ -131,14 +160,12 @@ impl<'a, B: Backend> Iterator for ExperienceBatcherIterator<'a, B> {
 mod tests {
     use std::collections::HashSet;
 
-    use burn::backend::NdArray;
-
     use crate::common::ExperienceBuffer;
 
     use super::*;
 
     #[test]
-    fn batcher_sanity() {
+    fn batcher_sanity() -> Result<()> {
         let mut exp_buf = ExperienceBuffer::<2, 3>::new(10);
 
         for i in 0..5 {
@@ -157,9 +184,9 @@ mod tests {
 
         let returns = exp_buf.returns(&[true, true]);
 
-        let device = Default::default();
+        let device = Device::Cpu;
 
-        let experience_set = ExperienceBatcher::<NdArray>::new(
+        let experience_set = ExperienceBatcher::new(
             observations,
             actions,
             values,
@@ -167,20 +194,19 @@ mod tests {
             returns.view(),
             6,
             device,
-        );
+        )?;
 
         let mut seen_obs = HashSet::new();
         let mut num_iterations = 0;
         for batch in experience_set.into_iter() {
-            let [batch_size, obs_size] = batch.observations.dims();
+            let obs_size = batch.observations.dims()[1];
             assert_eq!(obs_size, 3);
 
-            let obs_data = batch.observations.to_data();
-            let obs = obs_data.as_slice::<f32>().unwrap();
+            let batch_obs = batch.observations.to_vec2::<f32>()?;
 
-            for i in (0..(batch_size * obs_size)).step_by(obs_size) {
-                assert!(seen_obs.insert(obs[i].round() as i64));
-            }
+            batch_obs.iter().for_each(|obs| {
+                assert!(seen_obs.insert(obs[0].round() as i64));
+            });
 
             num_iterations += 1;
         }
@@ -189,5 +215,7 @@ mod tests {
         for v in &[0, 1, 2, 3, 4, 100, 101, 102, 103, 104] {
             assert!(seen_obs.contains(v));
         }
+
+        Ok(())
     }
 }

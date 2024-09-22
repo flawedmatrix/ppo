@@ -1,3 +1,4 @@
+use candle_core::Result;
 use ppo::{train, Environment, ModelConfig, TrainingConfig};
 
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
@@ -31,7 +32,7 @@ impl Environment<3, 3> for TestEnv {
 }
 
 #[test]
-fn training_lifecycle() {
+fn training_lifecycle() -> Result<()> {
     let init_state = TestEnv(0);
 
     let model_config = ModelConfig::new(3, 3)
@@ -43,5 +44,5 @@ fn training_lifecycle() {
         .with_batch_size(2)
         .with_num_envs(10);
 
-    train::<_, _, 10, 3, 3>(init_state, training_config, "temp/");
+    train::<_, _, 10, 3, 3>(init_state, training_config, "temp/")
 }
