@@ -4,8 +4,7 @@ use tracing::instrument;
 
 #[instrument]
 pub fn neglog_probs(logits: &Tensor, actions: &Tensor) -> Result<Tensor> {
-    let logits = logits.detach();
-    let log_probs = log_softmax(&logits, D::Minus1)?;
+    let log_probs = log_softmax(logits, D::Minus1)?;
     log_probs
         .gather(&actions.unsqueeze(D::Minus1)?, D::Minus1)?
         .neg()?
@@ -15,7 +14,6 @@ pub fn neglog_probs(logits: &Tensor, actions: &Tensor) -> Result<Tensor> {
 /// Computes the entropy of a categorical probability distribution.
 #[instrument]
 pub fn dist_entropy(logits: &Tensor) -> Result<Tensor> {
-    let logits = logits.detach();
     let logits_max = logits.max_keepdim(D::Minus1)?;
     let a0 = logits.broadcast_sub(&logits_max)?;
     let exp_a0 = a0.exp()?;

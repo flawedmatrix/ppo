@@ -44,13 +44,19 @@ impl Learner {
 
         let batch_size = batch.observations.dims()[0];
 
+        let advs = trace_span!("advs").in_scope(|| {
+            let a = (&batch.returns - &batch.values)?;
+            let (a_mean, a_std) = mean_and_std(&a)?;
+            (a - a_mean)? / (a_std + 1e-8)
+        })?;
+
         let (values, policy_latent) = self.model.forward_critic_actor(&batch.observations)?;
 
-        let neglogps = neglog_probs(&policy_latent, &batch.actions)?;
+        let neglogps = neglog_probs(&policy_latent.detach(), &batch.actions)?;
 
         let nlp_diff = (neglogps - batch.neglogps)?;
         stats.approxkl = trace_span!("approxkl")
-            .in_scope(|| -> Result<f32> { nlp_diff.powf(2.0)?.mean_all()?.to_vec0() })?;
+            .in_scope(|| -> Result<f32> { nlp_diff.sqr()?.mean_all()?.to_vec0() })?;
 
         let entropy = trace_span!("entropy").in_scope(|| -> Result<Tensor> {
             let e = dist_entropy(&policy_latent)?.mean_all()?;
@@ -58,12 +64,12 @@ impl Learner {
             Ok(e)
         })?;
 
-        let values_clipped = ((&values - &batch.values)?
+        let values_clipped = ((&values.detach() - &batch.values)?
             .clamp(-self.config.clip_range, self.config.clip_range)
             + &batch.values)?;
 
-        let vf_losses1 = (values - &batch.returns)?.powf(2.0)?;
-        let vf_losses2 = (values_clipped - &batch.returns)?.powf(2.0)?;
+        let vf_losses1 = (values - &batch.returns)?.sqr()?;
+        let vf_losses2 = (values_clipped - &batch.returns)?.sqr()?;
 
         let vf_loss = (vf_losses1.maximum(&vf_losses2)?.mean_all()? * 0.5)?;
         stats.vf_loss = vf_loss.to_vec0()?;
@@ -76,15 +82,9 @@ impl Learner {
             Ok(gt_mask.sum_all()?.to_vec0::<f32>()? / batch_size as f32)
         })?;
 
-        let advs = trace_span!("advs").in_scope(|| {
-            let a = (batch.returns - batch.values)?;
-            let (a_mean, a_std) = mean_and_std(&a)?;
-            (a - a_mean)? / (a_std + 1e-8)
-        })?;
-
         let neg_advs = advs.neg()?;
 
-        let pg_losses1 = (&ratio * &neg_advs)?;
+        let pg_losses1 = (&ratio.detach() * &neg_advs)?;
         let pg_losses2 =
             (ratio.clamp(1.0 - self.config.clip_range, 1.0 + self.config.clip_range)? * neg_advs)?;
         let pg_loss = pg_losses1.maximum(&pg_losses2)?.mean_all()?;

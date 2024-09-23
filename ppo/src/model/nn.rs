@@ -94,6 +94,7 @@ impl PolicyModel {
         let num_envs = obs.len();
         let obs_tensor = Tensor::from_slice(obs.as_flattened(), &[num_envs, OBS_SIZE], &device)?;
         let (critic, actor) = self.forward_critic_actor(&obs_tensor)?;
+        let (critic, actor) = (critic.detach(), actor.detach());
 
         let actor = match action_mask {
             Some(m) => {
