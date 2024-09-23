@@ -27,6 +27,16 @@ pub struct Learner {
     pub config: ModelConfig,
 }
 
+// Computes the mean and unbiased standard deviation over all elements in the tensor
+fn mean_and_std(values: &Tensor) -> Result<(f64, f64)> {
+    let mean = values.mean_all()?;
+    let squares = values.broadcast_sub(&mean)?.sqr()?;
+    let sum: f32 = squares.sum_all()?.to_vec0()?;
+    let var: f32 = sum / (values.elem_count() - 1) as f32;
+    let mean_val: f32 = mean.to_vec0()?;
+    Ok((mean_val as f64, var.sqrt() as f64))
+}
+
 impl Learner {
     pub fn step(&mut self, batch: ExperienceBatch) -> Result<TrainingStats> {
         let _enter = self.span.enter();
@@ -68,14 +78,15 @@ impl Learner {
 
         let advs = trace_span!("advs").in_scope(|| {
             let a = (batch.returns - batch.values)?;
-            let (a_var, a_mean) = (a.var_keepdim(0)?, a.mean_keepdim(0)?);
-            a.broadcast_sub(&a_mean)?.broadcast_div(&(a_var + 1e-8)?)
+            let (a_mean, a_std) = mean_and_std(&a)?;
+            (a - a_mean)? / (a_std + 1e-8)
         })?;
 
-        let pg_losses1 = (&ratio * advs.neg()?)?;
-        let pg_losses2 = (ratio
-            .clamp(1.0 - self.config.clip_range, 1.0 + self.config.clip_range)?
-            * advs.neg()?)?;
+        let neg_advs = advs.neg()?;
+
+        let pg_losses1 = (&ratio * &neg_advs)?;
+        let pg_losses2 =
+            (ratio.clamp(1.0 - self.config.clip_range, 1.0 + self.config.clip_range)? * neg_advs)?;
         let pg_loss = pg_losses1.maximum(&pg_losses2)?.mean_all()?;
 
         stats.pg_loss = trace_span!("pg_loss").in_scope(|| pg_loss.to_vec0())?;
