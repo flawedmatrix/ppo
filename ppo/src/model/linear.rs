@@ -41,11 +41,11 @@ pub fn critic_actor_heads(
     in_dim: usize,
     num_actions: usize,
     vb: VarBuilder,
-) -> Result<LinearWithSpan> {
-    let vb_prefix = vb.prefix();
-
+) -> Result<(LinearWithSpan, LinearWithSpan)> {
     let vb_critic = vb.pp("critic");
+    let vb_critic_prefix = vb_critic.prefix();
     let vb_actor = vb.pp("actor");
+    let vb_actor_prefix = vb_actor.prefix();
 
     let init_ws = candle_nn::Init::Const(1.0);
     let init_bs = candle_nn::Init::Const(0.0);
@@ -58,19 +58,29 @@ pub fn critic_actor_heads(
     let ws_actor = vb_actor.get_with_hints((num_actions, in_dim), "weight", init_ws)?;
     let bs_actor = vb_actor.get_with_hints(num_actions, "bias", init_bs)?;
 
-    let span = tracing::span!(
+    let critic_span = tracing::span!(
         tracing::Level::TRACE,
-        "critic_actor_heads",
-        vb_prefix,
+        "critic_head",
+        vb_critic_prefix,
+        in_dim,
+    );
+
+    let actor_span = tracing::span!(
+        tracing::Level::TRACE,
+        "actor_head",
+        vb_actor_prefix,
         in_dim,
         num_actions,
     );
 
-    let ws = Tensor::cat(&[ws_critic, ws_actor], 0)?;
-    let bs = Tensor::cat(&[bs_critic, bs_actor], 0)?;
-
-    Ok(LinearWithSpan {
-        inner: Linear::new(ws, Some(bs)),
-        span,
-    })
+    Ok((
+        LinearWithSpan {
+            inner: Linear::new(ws_critic, Some(bs_critic)),
+            span: critic_span,
+        },
+        LinearWithSpan {
+            inner: Linear::new(ws_actor, Some(bs_actor)),
+            span: actor_span,
+        },
+    ))
 }

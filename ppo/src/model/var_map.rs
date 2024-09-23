@@ -35,13 +35,12 @@ impl SimpleBackend for VarMap {
         if self.0.contains_tensor(name) {
             return self.0.get(s, name, init, dtype, dev);
         }
-
         let tensor = if name.ends_with("weight") {
             let gain = match init {
                 candle_nn::Init::Const(val) => val as f32,
                 _ => 2f32.sqrt(),
             };
-            ortho_init(&s, gain)?.to_device(dev)
+            ortho_init(&s, gain)?.to_device(dev)?.to_dtype(dtype)
         } else if name.ends_with("bias") {
             Tensor::zeros(&s, dtype, dev)
         } else {
@@ -50,7 +49,11 @@ impl SimpleBackend for VarMap {
             }
             .bt())
         }?;
-        tensor.to_device(dev)?.to_dtype(dtype)
+        let var = Var::from_tensor(&tensor)?;
+        let tensor = var.as_tensor().clone();
+        let mut tensor_data = self.0.data().lock().unwrap();
+        tensor_data.insert(name.to_string(), var);
+        Ok(tensor)
     }
 
     fn contains_tensor(&self, name: &str) -> bool {

@@ -8,10 +8,10 @@ use super::{
 };
 
 pub struct PolicyModel {
-    pub(super) input: LinearWithSpan,
-    pub(super) hidden: Sequential,
-    /// Combined policy and value head: [HIDDEN_DIM, NUM_ACTIONS + 1]
-    pub(super) output: LinearWithSpan,
+    pub(super) layers: Sequential,
+
+    pub(super) critic: LinearWithSpan, // [hidden_dim, 1]
+    pub(super) actor: LinearWithSpan,  // [hidden_dim, num_actions]
 
     span: tracing::Span,
 }
@@ -20,27 +20,33 @@ impl PolicyModel {
     /// Returns the initialized model.
     pub fn new(cfg: ModelConfig, vb: VarBuilder) -> Result<Self> {
         let sqrt_2 = f32::sqrt(2.);
-        let mut hidden_layers = seq();
+
+        let mut layers = seq()
+            .add(linear_with_span(
+                cfg.observation_size,
+                cfg.hidden_size,
+                sqrt_2,
+                vb.pp("input"),
+            )?)
+            .add(Activation::Relu);
 
         for i in 0..cfg.num_hidden_layers {
-            hidden_layers = hidden_layers.add(linear_with_span(
+            layers = layers.add(linear_with_span(
                 cfg.hidden_size,
                 cfg.hidden_size,
                 sqrt_2,
                 vb.pp("hidden").pp(i.to_string()),
             )?);
-            hidden_layers = hidden_layers.add(Activation::Relu);
+            layers = layers.add(Activation::Relu);
         }
 
+        let (critic, actor) =
+            critic_actor_heads(cfg.hidden_size, cfg.num_actions, vb.pp("output"))?;
+
         Ok(Self {
-            input: linear_with_span(
-                cfg.observation_size,
-                cfg.hidden_size,
-                sqrt_2,
-                vb.pp("input"),
-            )?,
-            hidden: hidden_layers,
-            output: critic_actor_heads(cfg.hidden_size, cfg.num_actions, vb.pp("output"))?,
+            layers,
+            critic,
+            actor,
             span: tracing::span!(tracing::Level::TRACE, "policy_model"),
         })
     }
@@ -49,12 +55,7 @@ impl PolicyModel {
 impl Module for PolicyModel {
     fn forward(&self, obs: &Tensor) -> Result<Tensor> {
         let _enter = self.span.enter();
-        let mut x = self.input.forward(obs)?;
-        x = x.relu()?;
-        // The hidden layers already handle activations
-        x = self.hidden.forward(&x)?;
-
-        self.output.forward(&x)
+        self.layers.forward(obs)
     }
 }
 
@@ -66,12 +67,10 @@ impl PolicyModel {
     ///  - Critic: [batch_size]
     ///  - Actor: [batch_size, NUM_ACTIONS]
     pub fn forward_critic_actor(&self, obs: &Tensor) -> Result<(Tensor, Tensor)> {
-        let output = self.forward(obs)?; // [batch_size, num_actions + 1]
+        let latent = self.forward(obs)?; // [batch_size, hidden_size]
 
-        let num_actions = output.dims()[1] - 1;
-
-        let critic = output.narrow(D::Minus1, 0, 1)?.squeeze(D::Minus1)?;
-        let actor = output.narrow(D::Minus1, 1, num_actions)?;
+        let critic = self.critic.forward(&latent)?.squeeze(D::Minus1)?;
+        let actor = self.actor.forward(&latent)?;
 
         Ok((critic, actor))
     }

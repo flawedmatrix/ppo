@@ -52,7 +52,7 @@ impl Learner {
 
         let (values, policy_latent) = self.model.forward_critic_actor(&batch.observations)?;
 
-        let neglogps = neglog_probs(&policy_latent.detach(), &batch.actions)?;
+        let neglogps = neglog_probs(&policy_latent, &batch.actions)?;
 
         let nlp_diff = (neglogps - batch.neglogps)?;
         stats.approxkl = trace_span!("approxkl")
@@ -64,7 +64,7 @@ impl Learner {
             Ok(e)
         })?;
 
-        let values_clipped = ((&values.detach() - &batch.values)?
+        let values_clipped = ((&values - &batch.values)?
             .clamp(-self.config.clip_range, self.config.clip_range)
             + &batch.values)?;
 
@@ -84,7 +84,7 @@ impl Learner {
 
         let neg_advs = advs.neg()?;
 
-        let pg_losses1 = (&ratio.detach() * &neg_advs)?;
+        let pg_losses1 = (&ratio * &neg_advs)?;
         let pg_losses2 =
             (ratio.clamp(1.0 - self.config.clip_range, 1.0 + self.config.clip_range)? * neg_advs)?;
         let pg_loss = pg_losses1.maximum(&pg_losses2)?.mean_all()?;
