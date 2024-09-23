@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
+cuda = ["candle-core/cuda", "candle-nn/cuda"]
+metal = ["candle-core/metal", "candle-nn/metal"]
+mkl = ["candle-core/mkl", "candle-nn/mkl"]
+accelerate = ["candle-core/accelerate", "candle-nn/accelerate"]
+
 blas = ["dep:ndarray-linalg"]
 netlib = ["blas", "ndarray-linalg/netlib"]
 openblas = ["blas", "ndarray-linalg/openblas"]
@@ -25,12 +30,8 @@ rand_distr = "0.4.3"
 linfa-linalg = "0.1.0"
 ndarray-linalg = { version = "0.16", optional = true }
 tracing = "0.1"
-candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.6.1", features = [
-    "cuda",
-], rev = "ebf722b446cf516dcecbdaf3f18551e7dcc0e6fd" }
-candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.6.1", features = [
-    "cuda",
-], rev = "ebf722b446cf516dcecbdaf3f18551e7dcc0e6fd" }
+candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.6.1", rev = "ebf722b446cf516dcecbdaf3f18551e7dcc0e6fd" }
+candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.6.1", rev = "ebf722b446cf516dcecbdaf3f18551e7dcc0e6fd" }
 
 [dev-dependencies]
 approx = "0.5"

@@ -93,6 +93,20 @@ fn explained_variance(predictions: ArrayView1<f32>, targets: ArrayView1<f32>) ->
     }
 }
 
+fn get_device() -> Result<Device> {
+    let dev = if candle_core::utils::cuda_is_available() {
+        Device::new_cuda(0)?
+    } else if candle_core::utils::metal_is_available() {
+        Device::new_metal(0)?
+    } else {
+        return Ok(Device::Cpu);
+    };
+    let mut rng = rand::thread_rng();
+    let seed: u64 = rng.next_u64();
+    dev.set_seed(seed)?;
+    Ok(dev)
+}
+
 pub fn train<T, P, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_ACTIONS: usize>(
     init_env_state: T,
     config: TrainingConfig,
@@ -104,11 +118,7 @@ where
 {
     let mut exp_buf: ExperienceBuffer<NUM_ENVS, OBS_SIZE> = ExperienceBuffer::new(config.num_steps);
 
-    let device = Device::cuda_if_available(0)?;
-
-    let mut rng = rand::thread_rng();
-    let seed: u64 = rng.next_u64();
-    device.set_seed(seed)?;
+    let device = get_device()?;
 
     let vars = crate::model::VarMap::new();
     let vb = VarBuilder::from_backend(Box::new(vars.clone()), DType::F32, device.clone());
