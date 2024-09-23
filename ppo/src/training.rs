@@ -102,7 +102,7 @@ fn get_device() -> Result<Device> {
         return Ok(Device::Cpu);
     };
     let mut rng = rand::thread_rng();
-    let seed: u64 = rng.next_u64();
+    let seed: u64 = rng.next_u32() as u64;
     dev.set_seed(seed)?;
     Ok(dev)
 }
