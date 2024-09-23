@@ -57,15 +57,17 @@ impl ExperienceBatcher {
                 &device,
             )?,
         };
-        let mut indices: Vec<u32> = (0..buf_size as u32).collect();
-        let mut rng = rand::thread_rng();
-        indices.shuffle(&mut rng);
         Ok(Self {
             set,
-            shuffled_indices: indices,
+            shuffled_indices: (0..buf_size as u32).collect(),
             batch_size,
             device,
         })
+    }
+
+    pub fn shuffle(&mut self) {
+        let mut rng = rand::thread_rng();
+        self.shuffled_indices.shuffle(&mut rng);
     }
 }
 
@@ -186,7 +188,7 @@ mod tests {
 
         let device = Device::Cpu;
 
-        let experience_set = ExperienceBatcher::new(
+        let mut experience_set = ExperienceBatcher::new(
             observations,
             actions,
             values,
@@ -195,6 +197,8 @@ mod tests {
             6,
             device,
         )?;
+
+        experience_set.shuffle();
 
         let mut seen_obs = HashSet::new();
         let mut num_iterations = 0;

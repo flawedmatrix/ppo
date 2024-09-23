@@ -192,7 +192,7 @@ where
 
         let explained_variance = explained_variance(values, returns.view());
 
-        let exp_batcher = ExperienceBatcher::new(
+        let mut exp_batcher = ExperienceBatcher::new(
             observations,
             actions,
             values,
@@ -204,6 +204,7 @@ where
 
         let mut stats = TrainingStats::default();
         for _ in 0..config.num_train_iterations {
+            exp_batcher.shuffle();
             for batch in exp_batcher.into_iter() {
                 stats = learner.step(batch)?;
             }
