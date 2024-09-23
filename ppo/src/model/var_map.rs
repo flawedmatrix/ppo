@@ -1,9 +1,8 @@
-use candle_core::{DType, Device, Result, Shape, Tensor, Var};
+use candle_core::{DType, Device, Error, Result, Shape, Tensor, Var};
 use candle_nn::var_builder::SimpleBackend;
 
 use rand_distr::{Distribution, StandardNormal};
 
-use linfa_linalg::svd::SVD;
 use ndarray::prelude::*;
 
 /// TensorMap with the ability to initialize tensors with Orthogonal
@@ -62,6 +61,12 @@ impl SimpleBackend for VarMap {
     }
 }
 
+#[cfg(not(feature = "blas"))]
+use linfa_linalg::svd::SVD;
+
+#[cfg(feature = "blas")]
+use ndarray_linalg::{svddc::SVDDC, JobSvd};
+
 /// Initializes a tensor using the Orthogonal init defined here:
 /// https://github.com/openai/baselines/blob/master/baselines/a2c/utils.py#L20
 /// (Also the Orthogonal initializer implemented in Lasagne)
@@ -88,7 +93,16 @@ fn ortho_init<S: Into<Shape>>(s: S, gain: f32) -> Result<Tensor> {
     let gaussian_noise =
         Array2::<f32>::from_shape_simple_fn((rows, cols), move || dist.sample(&mut rng));
 
-    let (opt_u, _, opt_vt) = gaussian_noise.svd(true, true).unwrap();
+    let (opt_u, _, opt_vt) = {
+        #[cfg(not(feature = "blas"))]
+        {
+            gaussian_noise.svd(true, true).map_err(Error::wrap)?
+        }
+        #[cfg(feature = "blas")]
+        {
+            gaussian_noise.svddc(JobSvd::Some).map_err(Error::wrap)?
+        }
+    };
 
     let u = opt_u.unwrap();
     let v = opt_vt.unwrap();

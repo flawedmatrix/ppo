@@ -3,11 +3,27 @@ name = "ppo"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+blas = ["dep:ndarray-linalg"]
+netlib = ["blas", "ndarray-linalg/netlib"]
+openblas = ["blas", "ndarray-linalg/openblas"]
+intel-mkl = ["blas", "ndarray-linalg/intel-mkl"]
+
+netlib-static = ["blas", "ndarray-linalg/netlib-static"]
+netlib-system = ["blas", "ndarray-linalg/netlib-system"]
+
+openblas-static = ["blas", "ndarray-linalg/openblas-static"]
+openblas-system = ["blas", "ndarray-linalg/openblas-system"]
+
+intel-mkl-static = ["blas", "ndarray-linalg/intel-mkl-static"]
+intel-mkl-system = ["blas", "ndarray-linalg/intel-mkl-system"]
+
 [dependencies]
 ndarray = "0.15"
 rand = "0.8.5"
 rand_distr = "0.4.3"
 linfa-linalg = "0.1.0"
+ndarray-linalg = { version = "0.16", optional = true }
 tracing = "0.1"
 candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.6.1", features = [
     "cuda",
