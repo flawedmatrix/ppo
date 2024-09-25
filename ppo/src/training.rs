@@ -177,10 +177,9 @@ where
 
         for _ in 0..config.num_steps {
             let obs = runner.current_state();
-            let (critic, actions, neglogps) =
-                learner
-                    .model
-                    .infer::<OBS_SIZE, NUM_ACTIONS>(&obs, None, true, device.clone())?;
+            let (critic, actions, neglogps) = learner
+                .model
+                .infer::<OBS_SIZE, NUM_ACTIONS>(&obs, None, true)?;
 
             let run_step = runner.step(&actions);
             exp_buf.add_experience(
@@ -202,19 +201,17 @@ where
 
         let explained_variance = explained_variance(values, returns.view());
 
-        let mut exp_batcher = ExperienceBatcher::new(
+        let exp_batcher = ExperienceBatcher::new(
             observations,
             actions,
             values,
             neglogps,
             returns.view(),
             config.batch_size,
-            device.clone(),
         )?;
 
         let mut stats = TrainingStats::default();
         for _ in 0..config.num_train_iterations {
-            exp_batcher.shuffle();
             for batch in exp_batcher.into_iter() {
                 stats = learner.step(batch)?;
             }

@@ -14,6 +14,8 @@ pub struct PolicyModel {
     pub(super) actor: LinearWithSpan,  // [hidden_dim, num_actions]
 
     span: tracing::Span,
+
+    pub(super) device: Device,
 }
 
 impl PolicyModel {
@@ -48,6 +50,7 @@ impl PolicyModel {
             critic,
             actor,
             span: tracing::span!(tracing::Level::TRACE, "policy_model"),
+            device: vb.device().clone(),
         })
     }
 }
@@ -88,17 +91,22 @@ impl PolicyModel {
         obs: &[[f32; OBS_SIZE]],
         action_mask: Option<[bool; NUM_ACTIONS]>,
         randomize: bool,
-        device: Device,
     ) -> Result<(Vec<f32>, Vec<u32>, Vec<f32>)> {
         let num_envs = obs.len();
-        let obs_tensor = Tensor::from_slice(obs.as_flattened(), &[num_envs, OBS_SIZE], &device)?;
+        let obs_tensor =
+            Tensor::from_slice(obs.as_flattened(), &[num_envs, OBS_SIZE], &self.device)?;
+
+        let cpu_device = Device::Cpu;
         let (critic, actor) = self.forward_critic_actor(&obs_tensor)?;
-        let (critic, actor) = (critic.detach(), actor.detach());
+        let (critic, actor) = (
+            critic.detach().to_device(&cpu_device)?,
+            actor.detach().to_device(&cpu_device)?,
+        );
 
         let actor = match action_mask {
             Some(m) => {
                 let mask = m.iter().map(|&x| !x as u8 as f32).collect::<Vec<f32>>();
-                let neg_mask = (Tensor::from_slice(&mask, &[num_envs], &device)? * 500.0)?;
+                let neg_mask = (Tensor::from_slice(&mask, &[num_envs], &cpu_device)? * 500.0)?;
                 actor.broadcast_sub(&neg_mask)?
             }
             None => actor,

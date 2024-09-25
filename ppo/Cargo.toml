@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-candle-cuda = ["candle-core/cuda", "candle-nn/cuda"]
+candle-cuda = ["candle-core/cuda", "candle-core/cudnn", "candle-nn/cuda"]
 candle-metal = ["candle-core/metal", "candle-nn/metal"]
 candle-mkl = ["candle-core/mkl", "candle-nn/mkl"]
 candle-accelerate = ["candle-core/accelerate", "candle-nn/accelerate"]

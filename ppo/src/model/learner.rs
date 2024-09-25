@@ -1,6 +1,6 @@
-use candle_core::{DType, Result, Tensor};
+use candle_core::{DType, Device, Result, Tensor};
 use candle_nn::{AdamW, Optimizer};
-use tracing::trace_span;
+use tracing::{info, trace_span};
 
 use crate::data::ExperienceBatch;
 
@@ -50,7 +50,15 @@ impl Learner {
             (a - a_mean)? / (a_std + 1e-8)
         })?;
 
-        let (values, policy_latent) = self.model.forward_critic_actor(&batch.observations)?;
+        let cpu_device = Device::Cpu;
+
+        let obs = trace_span!("obs_to_cuda")
+            .in_scope(|| batch.observations.to_device(&self.model.device))?;
+        let (values, policy_latent) = self.model.forward_critic_actor(&obs)?;
+
+        let values = trace_span!("values_to_cpu").in_scope(|| values.to_device(&cpu_device))?;
+        let policy_latent =
+            trace_span!("policy_to_cpu").in_scope(|| policy_latent.to_device(&cpu_device))?;
 
         let neglogps = neglog_probs(&policy_latent, &batch.actions)?;
 
@@ -77,7 +85,7 @@ impl Learner {
         let ratio = nlp_diff.neg()?.exp()?;
 
         stats.clipfrac = trace_span!("clip_frac").in_scope(|| -> Result<f32> {
-            let gt_mask = (ratio.clone() - 1.0)?.abs()?.gt(self.config.clip_range)?;
+            let gt_mask = (&ratio - 1.0)?.abs()?.gt(self.config.clip_range)?;
             let gt_mask = gt_mask.to_dtype(DType::F32)?;
             Ok(gt_mask.sum_all()?.to_vec0::<f32>()? / batch_size as f32)
         })?;
@@ -94,7 +102,8 @@ impl Learner {
         let loss = ((pg_loss - (entropy * self.config.entropy_coefficient)?)?
             + (vf_loss * self.config.vf_coefficient))?;
 
-        trace_span!("optim.step").in_scope(|| self.optim.backward_step(&loss))?;
+        let grads = trace_span!("loss.backward").in_scope(|| loss.backward())?;
+        trace_span!("optim.step").in_scope(|| self.optim.step(&grads))?;
 
         Ok(stats)
     }
