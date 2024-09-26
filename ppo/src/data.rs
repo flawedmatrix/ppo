@@ -14,6 +14,7 @@ pub struct ExperienceBatch {
 pub struct ExperienceBatcher {
     set: ExperienceBatch,
     batch_size: usize,
+    device: Device,
 }
 
 impl ExperienceBatcher {
@@ -24,6 +25,7 @@ impl ExperienceBatcher {
         neglogps: ArrayView1<f32>,
         returns: ArrayView1<f32>,
         batch_size: usize,
+        device: &Device,
     ) -> Result<Self> {
         let span = tracing::span!(tracing::Level::TRACE, "ExperienceBatcher::new");
         let _guard = span.enter();
@@ -31,64 +33,111 @@ impl ExperienceBatcher {
         let cpu_device = Device::Cpu;
 
         let (buf_size, obs_size) = observations.dim();
+        let observations = Tensor::from_slice(
+            observations.as_standard_layout().as_slice().unwrap(),
+            &[buf_size, obs_size],
+            &cpu_device,
+        )?;
+        let actions = Tensor::from_slice(
+            actions.as_standard_layout().as_slice().unwrap(),
+            &[buf_size],
+            &cpu_device,
+        )?;
+        let values = Tensor::from_slice(
+            values.as_standard_layout().as_slice().unwrap(),
+            &[buf_size],
+            &cpu_device,
+        )?;
+        let neglogps = Tensor::from_slice(
+            neglogps.as_standard_layout().as_slice().unwrap(),
+            &[buf_size],
+            &cpu_device,
+        )?;
+        let returns = Tensor::from_slice(
+            returns.as_standard_layout().as_slice().unwrap(),
+            &[buf_size],
+            &cpu_device,
+        )?;
         let set = ExperienceBatch {
-            observations: Tensor::from_slice(
-                observations.as_standard_layout().as_slice().unwrap(),
-                &[buf_size, obs_size],
-                &cpu_device,
-            )?,
-            actions: Tensor::from_slice(
-                actions.as_standard_layout().as_slice().unwrap(),
-                &[buf_size],
-                &cpu_device,
-            )?,
-            values: Tensor::from_slice(
-                values.as_standard_layout().as_slice().unwrap(),
-                &[buf_size],
-                &cpu_device,
-            )?,
-            neglogps: Tensor::from_slice(
-                neglogps.as_standard_layout().as_slice().unwrap(),
-                &[buf_size],
-                &cpu_device,
-            )?,
-            returns: Tensor::from_slice(
-                returns.as_standard_layout().as_slice().unwrap(),
-                &[buf_size],
-                &cpu_device,
-            )?,
+            observations,
+            actions,
+            values,
+            neglogps,
+            returns,
         };
-        Ok(Self { set, batch_size })
+        Ok(Self {
+            set,
+            batch_size,
+            device: device.clone(),
+        })
     }
-}
 
-impl<'a> IntoIterator for &'a ExperienceBatcher {
-    type Item = ExperienceBatch;
-    type IntoIter = ExperienceBatcherIterator<'a>;
-
-    fn into_iter(self) -> Self::IntoIter {
+    fn _into_iter(&self) -> Result<ExperienceBatcherIterator> {
         let buf_size = self.set.actions.elem_count();
         let mut indices: Vec<u32> = (0..buf_size as u32).collect();
         let mut rng = rand::thread_rng();
         indices.shuffle(&mut rng);
 
-        ExperienceBatcherIterator {
-            batcher: self,
-            indices,
+        let indices_tensor = Tensor::from_slice(&indices, &[buf_size], &Device::Cpu)?;
+
+        let data = ExperienceBatch {
+            observations: self
+                .set
+                .observations
+                .index_select(&indices_tensor, 0)?
+                .to_device(&self.device)?,
+            actions: self
+                .set
+                .actions
+                .index_select(&indices_tensor, 0)?
+                .to_device(&self.device)?,
+            values: self
+                .set
+                .values
+                .index_select(&indices_tensor, 0)?
+                .to_device(&self.device)?,
+            neglogps: self
+                .set
+                .neglogps
+                .index_select(&indices_tensor, 0)?
+                .to_device(&self.device)?,
+            returns: self
+                .set
+                .returns
+                .index_select(&indices_tensor, 0)?
+                .to_device(&self.device)?,
+        };
+        Ok(ExperienceBatcherIterator {
+            data,
             iter_idx: 0,
+            batch_size: self.batch_size,
+        })
+    }
+}
+
+impl IntoIterator for &ExperienceBatcher {
+    type Item = ExperienceBatch;
+    type IntoIter = ExperienceBatcherIterator;
+
+    fn into_iter(self) -> Self::IntoIter {
+        match self._into_iter() {
+            Ok(iter) => iter,
+            Err(e) => {
+                panic!("Error in ExperienceBatcher::into_iter: {:?}", e);
+            }
         }
     }
 }
 
-pub struct ExperienceBatcherIterator<'a> {
-    batcher: &'a ExperienceBatcher,
-    indices: Vec<u32>,
+pub struct ExperienceBatcherIterator {
+    data: ExperienceBatch,
+    batch_size: usize,
     iter_idx: usize,
 }
 
-impl<'a> ExperienceBatcherIterator<'a> {
+impl ExperienceBatcherIterator {
     fn _next_impl(&mut self) -> Result<ExperienceBatch> {
-        let buf_size = self.batcher.set.actions.elem_count();
+        let buf_size = self.data.actions.elem_count();
         if self.iter_idx >= buf_size {
             return Err(candle_core::Error::InvalidIndex {
                 op: "ExperienceBatcherIterator::next",
@@ -98,30 +147,23 @@ impl<'a> ExperienceBatcherIterator<'a> {
         }
 
         let start = self.iter_idx;
-        let end = std::cmp::min(start + self.batcher.batch_size, buf_size);
-        let len = end - start;
+        let len = std::cmp::min(start + self.batch_size, buf_size) - start;
         self.iter_idx += len;
 
-        let indices_tensor = Tensor::from_slice(&self.indices[start..end], &[len], &Device::Cpu)?;
-
         Ok(ExperienceBatch {
-            observations: self
-                .batcher
-                .set
-                .observations
-                .index_select(&indices_tensor, 0)?,
-            actions: self.batcher.set.actions.index_select(&indices_tensor, 0)?,
-            values: self.batcher.set.values.index_select(&indices_tensor, 0)?,
-            neglogps: self.batcher.set.neglogps.index_select(&indices_tensor, 0)?,
-            returns: self.batcher.set.returns.index_select(&indices_tensor, 0)?,
+            observations: self.data.observations.narrow(0, start, len)?,
+            actions: self.data.actions.narrow(0, start, len)?,
+            values: self.data.values.narrow(0, start, len)?,
+            neglogps: self.data.neglogps.narrow(0, start, len)?,
+            returns: self.data.returns.narrow(0, start, len)?,
         })
     }
 }
 
-impl<'a> Iterator for ExperienceBatcherIterator<'a> {
+impl Iterator for ExperienceBatcherIterator {
     type Item = ExperienceBatch;
     fn next(&mut self) -> Option<Self::Item> {
-        let buf_size = self.batcher.set.actions.elem_count();
+        let buf_size = self.data.actions.elem_count();
         if self.iter_idx >= buf_size {
             return None;
         }
@@ -162,8 +204,16 @@ mod tests {
 
         let returns = exp_buf.returns(&[true, true]);
 
-        let experience_set =
-            ExperienceBatcher::new(observations, actions, values, neglogps, returns.view(), 6)?;
+        let device = Device::Cpu;
+        let experience_set = ExperienceBatcher::new(
+            observations,
+            actions,
+            values,
+            neglogps,
+            returns.view(),
+            6,
+            &device,
+        )?;
 
         let mut seen_obs = HashSet::new();
         let mut num_iterations = 0;

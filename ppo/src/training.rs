@@ -208,6 +208,7 @@ where
             neglogps,
             returns.view(),
             config.batch_size,
+            &device,
         )?;
 
         let mut stats = TrainingStats::default();
