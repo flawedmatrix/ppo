@@ -4,10 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-candle-cuda = ["candle-core/cuda", "candle-core/cudnn", "candle-nn/cuda"]
-candle-metal = ["candle-core/metal", "candle-nn/metal"]
-candle-mkl = ["candle-core/mkl", "candle-nn/mkl"]
-candle-accelerate = ["candle-core/accelerate", "candle-nn/accelerate"]
+dfdx-cuda = ["dfdx/cuda", "dfdx/cudnn"]
 
 blas = ["dep:ndarray-linalg"]
 netlib = ["blas", "ndarray-linalg/netlib"]
@@ -30,8 +27,9 @@ rand_distr = "0.4.3"
 linfa-linalg = "0.1.0"
 ndarray-linalg = { version = "0.16", optional = true }
 tracing = "0.1"
-candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.6.1", rev = "ebf722b446cf516dcecbdaf3f18551e7dcc0e6fd" }
-candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.6.1", rev = "ebf722b446cf516dcecbdaf3f18551e7dcc0e6fd" }
+dfdx = { git = "https://github.com/flawedmatrix/dfdx.git", branch = "fix-latest", features = [
+    "safetensors",
+] }
 
 [dev-dependencies]
 approx = "0.5"
