@@ -1,9 +1,4 @@
-use dfdx::{
-    nn::Linear,
-    shapes::{Dim, Rank2},
-    tensor::Tensor,
-    tensor_ops::Device,
-};
+use dfdx::{shapes::Rank2, tensor::Tensor, tensor_ops::Device};
 
 use rand_distr::{Distribution, StandardNormal};
 

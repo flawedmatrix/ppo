@@ -1,6 +1,6 @@
 use dfdx::prelude::*;
 
-fn neglog_probs<B: Dim, const NUM_ACTIONS: usize, D, T>(
+pub(super) fn neglog_probs<B: Dim, const NUM_ACTIONS: usize, D, T>(
     logits: Tensor<(B, Const<NUM_ACTIONS>), f32, D, T>,
     actions: Tensor<(B,), usize, D>,
 ) -> Tensor<(B,), f32, D, T>
@@ -13,7 +13,7 @@ where
 }
 
 /// Computes the entropy of a categorical probability distribution.
-fn dist_entropy<B: Dim, const NUM_ACTIONS: usize, D, T>(
+pub(super) fn dist_entropy<B: Dim, const NUM_ACTIONS: usize, D, T>(
     logits: Tensor<(B, Const<NUM_ACTIONS>), f32, D, T>,
 ) -> Tensor<(B,), f32, D, T>
 where
