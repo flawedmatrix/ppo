@@ -124,7 +124,9 @@ pub fn train<T, P, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_ACTIO
     // }
 
     let dev = Dev::default();
+    dev.enable_cache();
     let cpu_device = Cpu::default();
+    cpu_device.enable_cache();
 
     info!("Instantiating model with config {config:?}");
     let model = dev.build_module::<f32>(PolicyNetworkConfig::new(
