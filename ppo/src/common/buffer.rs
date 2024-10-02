@@ -28,12 +28,12 @@ pub struct ExperienceBuffer<const NUM_ENVS: usize, const OBS_SIZE: usize> {
     lambda: f32, // advantage estimation discounting factor (lambda in the paper)
 
     // This storage allows only a number of entries up to a certain capacity.
-    obs: Array3<f32>,      // [capacity, NUM_ENVS, OBS_SIZE]
-    rewards: Array2<f32>,  // [capacity, NUM_ENVS]
-    actions: Array2<u32>,  // [capacity, NUM_ENVS]
-    values: Array2<f32>,   // [capacity, NUM_ENVS]
-    dones: Array2<f32>,    // [capacity, NUM_ENVS]
-    neglogps: Array2<f32>, // [capacity, NUM_ENVS]
+    obs: Array3<f32>,       // [capacity, NUM_ENVS, OBS_SIZE]
+    rewards: Array2<f32>,   // [capacity, NUM_ENVS]
+    actions: Array2<usize>, // [capacity, NUM_ENVS]
+    values: Array2<f32>,    // [capacity, NUM_ENVS]
+    dones: Array2<f32>,     // [capacity, NUM_ENVS]
+    neglogps: Array2<f32>,  // [capacity, NUM_ENVS]
 
     last_values_idx: usize,
 }
@@ -85,7 +85,7 @@ impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OB
         &mut self,
         obs: &[[f32; OBS_SIZE]], // [NUM_ENVS, OBS_SIZE]
         rewards: &[f32],         // [NUM_ENVS]
-        actions: &[u32],         // [NUM_ENVS]
+        actions: &[usize],       // [NUM_ENVS]
         vals: &[f32],            // [NUM_ENVS]
         dones: &[bool],          // [NUM_ENVS]
         neglogps: &[f32],        // [NUM_ENVS]
@@ -143,7 +143,7 @@ impl<const NUM_ENVS: usize, const OBS_SIZE: usize> ExperienceBuffer<NUM_ENVS, OB
         &self,
     ) -> (
         ArrayView2<f32>,
-        ArrayView1<u32>,
+        ArrayView1<usize>,
         ArrayView1<f32>,
         ArrayView1<f32>,
     ) {

@@ -1,5 +1,6 @@
 mod config;
 // mod learner;
+mod data;
 mod init;
 mod linear;
 mod nn;
