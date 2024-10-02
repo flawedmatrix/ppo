@@ -7,6 +7,7 @@ mod nn;
 mod util;
 
 pub use config::*;
+pub use data::*;
 pub use init::*;
 pub use learner::*;
 pub use nn::*;

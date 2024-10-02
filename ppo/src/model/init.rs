@@ -38,11 +38,7 @@ pub fn ortho_init<const IN_DIM: usize, const OUT_DIM: usize, D: Device<f32>>(
     let u = opt_u.unwrap();
     let v = opt_vt.unwrap();
 
-    let weights = if u.shape() == &[IN_DIM, OUT_DIM] {
-        u
-    } else {
-        v
-    };
+    let weights = if u.shape() == [IN_DIM, OUT_DIM] { u } else { v };
     let weights = scale
         * weights
             .into_shape(shape)

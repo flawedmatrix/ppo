@@ -31,7 +31,7 @@ pub struct Learner<
     pub config: ModelConfig,
 
     pub grads: Gradients<f32, D>,
-    cpu_device: Cpu,
+    pub cpu_device: Cpu,
 }
 
 /// Computes the mean and unbiased standard deviation over all elements in the tensor

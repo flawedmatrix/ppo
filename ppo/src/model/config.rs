@@ -16,8 +16,6 @@ pub struct ModelConfig {
     // TODO: Doesn't support gradient clipping yet
     pub max_grad_norm: f32,
 
-    /// Learning rate for the optimizer
-    pub lr: f32,
     /// Number of hidden layers to create
     pub num_hidden_layers: usize,
 }
@@ -47,12 +45,6 @@ impl ModelConfig {
         self
     }
 
-    /// Sets the learning rate for the model.
-    pub fn with_lr(mut self, lr: f32) -> Self {
-        self.lr = lr;
-        self
-    }
-
     /// Sets the number of hidden layers for the model.
     pub fn with_num_hidden_layers(mut self, num_hidden_layers: usize) -> Self {
         self.num_hidden_layers = num_hidden_layers;
@@ -67,7 +59,6 @@ impl Default for ModelConfig {
             entropy_coefficient: 0.01,
             vf_coefficient: 0.5,
             max_grad_norm: 0.5,
-            lr: 3e-4,
             num_hidden_layers: 2,
         }
     }

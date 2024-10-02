@@ -1,6 +1,6 @@
 mod common;
 mod model;
-// mod training;
+mod training;
 
 use std::{fmt::Debug, hash::Hash};
 
@@ -29,4 +29,4 @@ pub trait Environment<const OBS_SIZE: usize, const NUM_ACTIONS: usize>:
 }
 
 pub use model::ModelConfig;
-// pub use training::*;
+pub use training::*;

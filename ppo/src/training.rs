@@ -1,14 +1,10 @@
-use candle_core::{DType, Device, Result};
-use candle_nn::{AdamW, Optimizer, ParamsAdamW, VarBuilder};
+use dfdx::prelude::*;
 use ndarray::{ArrayView1, Axis};
-use rand::RngCore;
 use tracing::{info, span, Level};
 
 use crate::{
-    common::ExperienceBuffer,
-    data::ExperienceBatcher,
-    model::{Learner, ModelConfig, PolicyModel, TrainingStats},
-    runner::VecRunner,
+    common::{ExperienceBuffer, VecRunner},
+    model::{ExperienceBatcher, Learner, ModelConfig, PolicyNetworkConfig, TrainingStats},
     Environment,
 };
 
@@ -30,6 +26,9 @@ pub struct TrainingConfig {
     /// during the model training pass
     pub batch_size: usize,
 
+    /// Learning rate for the model
+    pub lr: f64,
+
     pub model_config: ModelConfig,
 }
 
@@ -41,6 +40,7 @@ impl Default for TrainingConfig {
             num_epochs: 15000,
             num_train_iterations: 4,
             batch_size: 1280,
+            lr: 3e-4,
             model_config: ModelConfig::default(),
         }
     }
@@ -78,6 +78,11 @@ impl TrainingConfig {
         self.batch_size = batch_size;
         self
     }
+
+    pub fn with_lr(mut self, lr: f64) -> Self {
+        self.lr = lr;
+        self
+    }
 }
 
 // Given targets and predicted values, compute a metric to determine how good
@@ -93,35 +98,20 @@ fn explained_variance(predictions: ArrayView1<f32>, targets: ArrayView1<f32>) ->
     }
 }
 
-fn get_device() -> Result<Device> {
-    let dev = if candle_core::utils::cuda_is_available() {
-        Device::new_cuda(0)?
-    } else if candle_core::utils::metal_is_available() {
-        Device::new_metal(0)?
-    } else {
-        return Ok(Device::Cpu);
-    };
-    let mut rng = rand::thread_rng();
-    let seed: u64 = rng.next_u32() as u64;
-    dev.set_seed(seed)?;
-    Ok(dev)
-}
+#[cfg(feature = "dfdx-cuda")]
+type Dev = Cuda;
+#[cfg(not(feature = "dfdx-cuda"))]
+type Dev = Cpu;
 
 pub fn train<T, P, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_ACTIONS: usize>(
     init_env_state: T,
     config: TrainingConfig,
     model_path: P,
-) -> Result<()>
-where
+) where
     T: Environment<OBS_SIZE, NUM_ACTIONS>,
     P: AsRef<std::path::Path>,
 {
     let mut exp_buf: ExperienceBuffer<NUM_ENVS, OBS_SIZE> = ExperienceBuffer::new(config.num_steps);
-
-    let device = get_device()?;
-
-    let vars = crate::model::VarMap::new();
-    let vb = VarBuilder::from_backend(Box::new(vars.clone()), DType::F32, device.clone());
 
     // let model_path = model_path.as_ref();
 
@@ -133,18 +123,26 @@ where
     //     learner.model = learner.model.load_record(record);
     // }
 
-    let optimizer_params = ParamsAdamW {
-        lr: config.model_config.lr,
-        weight_decay: 0.0,
-        ..Default::default()
-    };
+    let dev = Dev::default();
+    let cpu_device = Cpu::default();
 
     info!("Instantiating model with config {config:?}");
-    let mut learner = Learner {
-        model: PolicyModel::new(config.model_config, vb)?,
-        optim: AdamW::new(vars.all_vars(), optimizer_params)?,
+    let model = dev.build_module::<f32>(PolicyNetworkConfig::new(2));
+    let optim = Adam::new(
+        &model,
+        AdamConfig {
+            lr: config.lr,
+            ..Default::default()
+        },
+    );
+    let grads = model.alloc_grads();
+    let mut learner = Learner::<OBS_SIZE, 1024, NUM_ACTIONS, Dev> {
+        model,
+        optim,
+        grads,
         span: span!(Level::TRACE, "learner.step"),
         config: config.model_config,
+        cpu_device: cpu_device.clone(),
     };
     info!("Model instantiated.");
 
@@ -177,9 +175,7 @@ where
 
         for _ in 0..config.num_steps {
             let obs = runner.current_state();
-            let (critic, actions, neglogps) = learner
-                .model
-                .infer::<OBS_SIZE, NUM_ACTIONS>(&obs, None, true)?;
+            let (critic, actions, neglogps) = learner.model.infer(&obs, None, true, &cpu_device);
 
             let run_step = runner.step(&actions);
             exp_buf.add_experience(
@@ -208,13 +204,12 @@ where
             neglogps,
             returns.view(),
             config.batch_size,
-            &device,
-        )?;
+        );
 
         let mut stats = TrainingStats::default();
         for _ in 0..config.num_train_iterations {
             for batch in exp_batcher.into_iter() {
-                stats = learner.step(batch)?;
+                stats = learner.step(batch);
             }
         }
         stats.explained_variance = explained_variance;
@@ -253,6 +248,4 @@ where
             //     .expect("Failed to save checkpoint");
         }
     }
-
-    Ok(())
 }

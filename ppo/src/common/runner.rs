@@ -65,7 +65,7 @@ where
     }
 
     // actions should be a Vec of size num_envs
-    pub fn step(&mut self, actions: &[u32]) -> VecRunStep {
+    pub fn step(&mut self, actions: &[usize]) -> VecRunStep {
         let mut next_states: Vec<[f32; OBS_SIZE]> = Vec::new();
         let mut rewards: Vec<f32> = Vec::new();
         let mut dones: Vec<bool> = Vec::new();
@@ -74,7 +74,7 @@ where
         let mut final_step_nums: Vec<i64> = Vec::new();
 
         for (i, env) in self.envs.iter_mut().enumerate() {
-            let action = actions[i] as usize;
+            let action = actions[i];
             let valid_actions = env.valid_actions();
 
             let old_score = env.score();
