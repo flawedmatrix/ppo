@@ -61,11 +61,16 @@ impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D
 
         let input = batch.observations.to_device(&model_device);
 
+        let forward_span = trace_span!("model.forward");
+        let _forward_enter = forward_span.enter();
+
         #[allow(clippy::type_complexity)]
         let (critic, policy_latent): (
             Tensor<(usize, Const<1>), f32, D, OwnedTape<f32, D>>,
             Tensor<(usize, Const<NUM_ACTIONS>), f32, D, OwnedTape<f32, D>>,
         ) = self.model.forward(input.trace(self.grads.clone()));
+
+        drop(_forward_enter);
 
         let critic = critic.reshape_like(&(batch_size,));
         let actions = batch.actions.to_device(&model_device);
