@@ -69,11 +69,7 @@ impl<const OBS_SIZE: usize, const NUM_ACTIONS: usize, const HIDDEN_DIM: usize, D
 
         let model_device = self.device();
 
-        #[allow(clippy::type_complexity)]
-        let (critic, actor): (
-            Tensor<(usize, Const<1>), f32, _>,
-            Tensor<(usize, Const<NUM_ACTIONS>), f32, _>,
-        ) = self.forward(obs_tensor.to_device(&model_device));
+        let (critic, actor) = self.forward(obs_tensor.to_device(&model_device));
 
         let (critic, actor) = (critic.to_device(cpu_device), actor.to_device(cpu_device));
 

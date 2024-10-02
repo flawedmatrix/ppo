@@ -64,11 +64,7 @@ impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D
         let forward_span = trace_span!("model.forward");
         let _forward_enter = forward_span.enter();
 
-        #[allow(clippy::type_complexity)]
-        let (critic, policy_latent): (
-            Tensor<(usize, Const<1>), f32, D, OwnedTape<f32, D>>,
-            Tensor<(usize, Const<NUM_ACTIONS>), f32, D, OwnedTape<f32, D>>,
-        ) = self.model.forward(input.trace(self.grads.clone()));
+        let (critic, policy_latent) = self.model.forward(input.trace(self.grads.clone()));
 
         drop(_forward_enter);
 
