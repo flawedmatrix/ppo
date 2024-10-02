@@ -127,7 +127,9 @@ pub fn train<T, P, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_ACTIO
     let cpu_device = Cpu::default();
 
     info!("Instantiating model with config {config:?}");
-    let model = dev.build_module::<f32>(PolicyNetworkConfig::new(2));
+    let model = dev.build_module::<f32>(PolicyNetworkConfig::new(
+        config.model_config.num_hidden_layers,
+    ));
     let optim = Adam::new(
         &model,
         AdamConfig {

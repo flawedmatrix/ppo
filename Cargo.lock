@@ -336,7 +336,7 @@ dependencies = [
 [[package]]
 name = "dfdx"
 version = "0.13.0"
-source = "git+https://github.com/flawedmatrix/dfdx.git?branch=fix-latest#f6f1fb530e579246a9c28b141ad4068684755b5c"
+source = "git+https://github.com/flawedmatrix/dfdx.git?branch=fix-latest#85eb4e60494e011c1c274d38dc22a5491bfdb1e0"
 dependencies = [
  "dfdx-core",
  "dfdx-derives",
@@ -348,7 +348,7 @@ dependencies = [
 [[package]]
 name = "dfdx-core"
 version = "0.13.0"
-source = "git+https://github.com/flawedmatrix/dfdx.git?branch=fix-latest#f6f1fb530e579246a9c28b141ad4068684755b5c"
+source = "git+https://github.com/flawedmatrix/dfdx.git?branch=fix-latest#85eb4e60494e011c1c274d38dc22a5491bfdb1e0"
 dependencies = [
  "cudarc",
  "gemm",
@@ -365,7 +365,7 @@ dependencies = [
 [[package]]
 name = "dfdx-derives"
 version = "0.13.0"
-source = "git+https://github.com/flawedmatrix/dfdx.git?branch=fix-latest#f6f1fb530e579246a9c28b141ad4068684755b5c"
+source = "git+https://github.com/flawedmatrix/dfdx.git?branch=fix-latest#85eb4e60494e011c1c274d38dc22a5491bfdb1e0"
 dependencies = [
  "dfdx-core",
  "proc-macro2",

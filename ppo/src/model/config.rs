@@ -1,12 +1,9 @@
 /// ModelConfig describes the parameters of the training process for the model.
-/// Must provide observation size and number of actions when instantiating.
 /// e.g.
 /// ```
 /// use ppo::ModelConfig;
-/// let observation_size = 20;
-/// let num_actions = 10;
-/// ModelConfig::new(observation_size, num_actions);
-/// ``````
+/// ModelConfig::default().with_num_hidden_layers(3);
+/// ```
 #[derive(Debug, Clone, Copy)]
 pub struct ModelConfig {
     pub clip_range: f32,
