@@ -1,12 +1,11 @@
-use candle_core::{DType, Result, Tensor};
-use candle_nn::{AdamW, Optimizer};
+use dfdx::prelude::*;
 use tracing::trace_span;
 
-use crate::data::ExperienceBatch;
+use super::data::ExperienceBatch;
 
 use super::{
     util::{dist_entropy, neglog_probs},
-    ModelConfig, PolicyModel,
+    ModelConfig, PolicyNetwork,
 };
 
 #[derive(Default, Debug)]
@@ -19,83 +18,116 @@ pub struct TrainingStats {
     pub explained_variance: f32,
 }
 
-pub struct Learner {
-    pub model: PolicyModel,
-    pub optim: AdamW,
+pub struct Learner<
+    const OBS_SIZE: usize,
+    const HIDDEN_DIM: usize,
+    const NUM_ACTIONS: usize,
+    D: Device<f32>,
+> {
+    pub model: PolicyNetwork<OBS_SIZE, NUM_ACTIONS, HIDDEN_DIM, f32, D>,
+    pub optim: Adam<PolicyNetwork<OBS_SIZE, NUM_ACTIONS, HIDDEN_DIM, f32, D>, f32, D>,
 
     pub span: tracing::Span,
     pub config: ModelConfig,
+
+    pub grads: Gradients<f32, D>,
+    cpu_device: Cpu,
 }
 
 /// Computes the mean and unbiased standard deviation over all elements in the tensor
-fn mean_and_std(values: &Tensor) -> Result<(Tensor, Tensor)> {
-    let mean = values.mean_all()?;
-    let squares = values.broadcast_sub(&mean)?.sqr()?;
-    let sum: Tensor = squares.sum_all()?;
-    let var: Tensor = (sum / (values.elem_count() - 1) as f64)?;
-    Ok((mean, var))
+fn correct_std(var: f32, n: usize) -> f32 {
+    let n = n as f32;
+    let corrected_var = var * (n / (n - 1.0));
+    corrected_var.sqrt()
 }
 
-impl Learner {
-    pub fn step(&mut self, batch: ExperienceBatch) -> Result<TrainingStats> {
+impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D: Device<f32>>
+    Learner<OBS_SIZE, HIDDEN_DIM, NUM_ACTIONS, D>
+{
+    pub fn step(&mut self, batch: ExperienceBatch<OBS_SIZE>) -> TrainingStats {
         let _enter = self.span.enter();
         let mut stats = TrainingStats::default();
 
-        let batch_size = batch.observations.dims()[0];
+        let batch_size = batch.actions.len();
+
+        let model_device = self.model.device();
 
         let advs = trace_span!("advs").in_scope(|| {
-            let rv_diff = (&batch.returns - &batch.values)?;
-            let (a_mean, a_std) = mean_and_std(&rv_diff)?;
-            rv_diff.broadcast_sub(&a_mean)?.broadcast_div(&a_std)
-        })?;
+            let a = batch.returns.clone() - batch.values.clone();
+            let a_mean = a.clone().mean().array();
+            let a_std = correct_std(a.clone().var().array(), batch_size);
+            (a - a_mean) / (a_std + 1e-8)
+        });
 
-        let (values, policy_latent) = self.model.forward_critic_actor(&batch.observations)?;
+        let input = batch.observations.to_device(&model_device);
 
-        let neglogps = neglog_probs(&policy_latent, &batch.actions)?;
+        #[allow(clippy::type_complexity)]
+        let (critic, policy_latent): (
+            Tensor<(usize, Const<1>), f32, D, OwnedTape<f32, D>>,
+            Tensor<(usize, Const<NUM_ACTIONS>), f32, D, OwnedTape<f32, D>>,
+        ) = self.model.forward(input.trace(self.grads.clone()));
 
-        let nlp_diff = (neglogps - batch.neglogps)?;
-        stats.approxkl = trace_span!("approxkl")
-            .in_scope(|| -> Result<f32> { nlp_diff.sqr()?.mean_all()?.to_scalar() })?;
+        let critic = critic.reshape_like(&(batch_size,));
+        let actions = batch.actions.to_device(&model_device);
+        let neglogps = neglog_probs(policy_latent.with_empty_tape(), actions);
 
-        let entropy = trace_span!("entropy").in_scope(|| -> Result<Tensor> {
-            let e = dist_entropy(&policy_latent)?.mean_all()?;
-            stats.entropy = e.to_scalar()?;
-            Ok(e)
-        })?;
+        stats.approxkl = trace_span!("approxkl").in_scope(|| -> f32 {
+            let nlp = neglogps.to_device(&self.cpu_device);
+            let nlp_diff = nlp - batch.neglogps.clone();
+            nlp_diff.square().mean().array() * 0.5
+        });
 
-        let values_clipped = ((&values - &batch.values)?
+        let entropy = trace_span!("entropy").in_scope(|| {
+            let entropy = dist_entropy(policy_latent).mean();
+            stats.entropy = entropy.to_device(&self.cpu_device).array();
+            entropy
+        });
+
+        let values = batch.values.to_device(&model_device);
+        let returns = batch.returns.to_device(&model_device);
+
+        let values_clipped = (critic.with_empty_tape() - values.clone())
             .clamp(-self.config.clip_range, self.config.clip_range)
-            + &batch.values)?;
+            + values;
+        let vf_losses1 = (critic - returns.clone()).square();
+        let vf_losses2 = (values_clipped - returns).square();
+        let vf_loss = Tensor::maximum(vf_losses1, vf_losses2).mean() * 0.5;
+        stats.vf_loss =
+            trace_span!("vf_loss").in_scope(|| vf_loss.to_device(&self.cpu_device).array());
 
-        let vf_losses1 = (values - &batch.returns)?.sqr()?;
-        let vf_losses2 = (values_clipped - &batch.returns)?.sqr()?;
+        let nlp_old = batch.neglogps.to_device(&model_device);
+        let ratio = (-neglogps + nlp_old).exp();
 
-        let vf_loss = (vf_losses1.maximum(&vf_losses2)?.mean_all()? * 0.5)?;
-        stats.vf_loss = vf_loss.to_scalar()?;
+        stats.clipfrac = trace_span!("clip_frac").in_scope(|| -> f32 {
+            let r = ratio.to_device(&self.cpu_device);
+            let gt_mask = (r - 1.0)
+                .abs()
+                .gt(self.config.clip_range)
+                .to_dtype::<usize>();
+            gt_mask.sum().array() as f32 / batch_size as f32
+        });
 
-        let ratio = nlp_diff.neg()?.exp()?;
+        let advs = advs.to_device(&model_device);
 
-        stats.clipfrac = trace_span!("clip_frac").in_scope(|| -> Result<f32> {
-            let gt_mask = (&ratio - 1.0)?.abs()?.gt(self.config.clip_range)?;
-            let gt_mask = gt_mask.to_dtype(DType::F32)?;
-            Ok(gt_mask.sum_all()?.to_scalar::<f32>()? / batch_size as f32)
-        })?;
-
-        let neg_advs = advs.neg()?;
-
-        let pg_losses1 = (&ratio * &neg_advs)?;
+        let pg_losses1 = ratio.with_empty_tape() * -advs.clone();
         let pg_losses2 =
-            (ratio.clamp(1.0 - self.config.clip_range, 1.0 + self.config.clip_range)? * neg_advs)?;
-        let pg_loss = pg_losses1.maximum(&pg_losses2)?.mean_all()?;
+            ratio.clamp(1.0 - self.config.clip_range, 1.0 + self.config.clip_range) * -advs;
+        let pg_loss = Tensor::maximum(pg_losses1, pg_losses2).mean();
 
-        stats.pg_loss = trace_span!("pg_loss").in_scope(|| pg_loss.to_scalar())?;
+        stats.pg_loss =
+            trace_span!("pg_loss").in_scope(|| pg_loss.to_device(&self.cpu_device).array());
 
-        let loss = ((pg_loss - (entropy * self.config.entropy_coefficient)?)?
-            + (vf_loss * self.config.vf_coefficient))?;
+        let loss = (pg_loss - (entropy * self.config.entropy_coefficient))
+            + (vf_loss * self.config.vf_coefficient);
 
-        let grads = trace_span!("loss.backward").in_scope(|| loss.backward())?;
-        trace_span!("optim.step").in_scope(|| self.optim.step(&grads))?;
+        self.grads = trace_span!("loss.backward").in_scope(|| loss.backward());
+        trace_span!("optim.step").in_scope(|| {
+            self.optim
+                .update(&mut self.model, &self.grads)
+                .expect("Unused params")
+        });
+        self.model.zero_grads(&mut self.grads);
 
-        Ok(stats)
+        stats
     }
 }

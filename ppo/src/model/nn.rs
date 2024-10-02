@@ -42,7 +42,7 @@ impl<const OBS_SIZE: usize, const NUM_ACTIONS: usize, const HIDDEN_DIM: usize, D
         let obs_tensor: Tensor<(usize, Const<OBS_SIZE>), _, _> =
             cpu_device.tensor_from_vec(obs.as_flattened().to_vec(), (num_envs, Const::<OBS_SIZE>));
 
-        let model_device = self.input.0.weight.device().clone();
+        let model_device = self.device();
 
         #[allow(clippy::type_complexity)]
         let (critic, actor): (
@@ -87,6 +87,10 @@ impl<const OBS_SIZE: usize, const NUM_ACTIONS: usize, const HIDDEN_DIM: usize, D
         let vf = critic.reshape_like(&(len,));
 
         (vf.as_vec(), actions, neglogp.as_vec())
+    }
+
+    pub fn device(&self) -> D {
+        self.input.0.weight.device().clone()
     }
 }
 

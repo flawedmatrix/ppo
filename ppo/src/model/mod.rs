@@ -1,12 +1,12 @@
 mod config;
-// mod learner;
 mod data;
 mod init;
+mod learner;
 mod linear;
 mod nn;
 mod util;
 
 pub use config::*;
-// pub use learner::*;
 pub use init::*;
+pub use learner::*;
 pub use nn::*;
