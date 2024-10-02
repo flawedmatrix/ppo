@@ -144,7 +144,8 @@ pub fn train<T, P, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_ACTIO
         model,
         optim,
         grads,
-        span: span!(Level::TRACE, "learner.step"),
+        infer_span: span!(Level::TRACE, "learner.infer"),
+        step_span: span!(Level::TRACE, "learner.step"),
         config: config.model_config,
         cpu_device: cpu_device.clone(),
     };
@@ -179,7 +180,7 @@ pub fn train<T, P, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_ACTIO
 
         for _ in 0..config.num_steps {
             let obs = runner.current_state();
-            let (critic, actions, neglogps) = learner.model.infer(&obs, None, true, &cpu_device);
+            let (critic, actions, neglogps) = learner.infer(&obs, None, true);
 
             let run_step = runner.step(&actions);
             exp_buf.add_experience(

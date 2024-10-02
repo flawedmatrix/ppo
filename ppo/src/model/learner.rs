@@ -1,4 +1,5 @@
 use dfdx::prelude::*;
+use rand_distr::Uniform;
 use tracing::trace_span;
 
 use super::data::ExperienceBatch;
@@ -27,11 +28,21 @@ pub struct Learner<
     pub model: PolicyNetwork<OBS_SIZE, NUM_ACTIONS, HIDDEN_DIM, f32, D>,
     pub optim: Adam<PolicyNetwork<OBS_SIZE, NUM_ACTIONS, HIDDEN_DIM, f32, D>, f32, D>,
 
-    pub span: tracing::Span,
+    pub infer_span: tracing::Span,
+    pub step_span: tracing::Span,
+
     pub config: ModelConfig,
 
     pub grads: Gradients<f32, D>,
     pub cpu_device: Cpu,
+}
+
+fn argmax<T: PartialOrd>(x: &[T]) -> usize {
+    x.iter()
+        .enumerate()
+        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(i, _)| i)
+        .unwrap()
 }
 
 /// Computes the mean and unbiased standard deviation over all elements in the tensor
@@ -44,8 +55,82 @@ fn correct_std(var: f32, n: usize) -> f32 {
 impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D: Device<f32>>
     Learner<OBS_SIZE, HIDDEN_DIM, NUM_ACTIONS, D>
 {
+    /// Runs an inference step of the model with critic and negative log probs
+    /// and optionally randomize action selection among the best choices
+    ///
+    /// Input: [num_envs, OBS_SIZE]
+    /// Output:
+    ///  - Critic: [num_envs]
+    ///  - Chosen Action: [num_envs]
+    ///  - Negative Log Probs: [num_envs]
+    pub fn infer(
+        &self,
+        obs: &[[f32; OBS_SIZE]],
+        action_mask: Option<[bool; NUM_ACTIONS]>,
+        randomize: bool,
+    ) -> (Vec<f32>, Vec<usize>, Vec<f32>) {
+        let _enter = self.infer_span.enter();
+        let num_envs = obs.len();
+
+        let obs_tensor: Tensor<(usize, Const<OBS_SIZE>), _, _> = self
+            .cpu_device
+            .tensor_from_vec(obs.as_flattened().to_vec(), (num_envs, Const::<OBS_SIZE>));
+
+        let model_device = self.model.device();
+
+        let forward_span = trace_span!("model.forward");
+        let _forward_enter = forward_span.enter();
+        let (critic, actor) = self.model.forward(obs_tensor.to_device(&model_device));
+        drop(_forward_enter);
+
+        let (critic, actor) = (
+            critic.to_device(&self.cpu_device),
+            actor.to_device(&self.cpu_device),
+        );
+
+        let actor = trace_span!("actor_mask").in_scope(|| match action_mask {
+            Some(m) => {
+                let mask = m.iter().map(|&x| !x as u8 as f32).collect::<Vec<f32>>();
+                let neg_mask = self
+                    .cpu_device
+                    .tensor_from_vec(mask, (1, Const::<NUM_ACTIONS>))
+                    * 500.0;
+                actor - neg_mask
+            }
+            None => actor,
+        });
+
+        // Get uniform distribution on [0, 1) in the shape of logits
+
+        let len = critic.shape().concrete()[0];
+
+        // Get uniform distribution on [0, 1) in the shape of logits
+        let dist = Uniform::new(0f32, 1f32);
+        let u = self.cpu_device.sample_like(actor.shape(), dist);
+
+        // Sample 1 action from actor probs
+        let logprobs = if randomize {
+            actor.clone() - (-u.ln()).ln()
+        } else {
+            actor.clone()
+        };
+
+        let mut actions: Vec<usize> = Vec::with_capacity(len);
+        for probs in logprobs.as_vec().chunks(NUM_ACTIONS) {
+            actions.push(argmax(probs));
+        }
+
+        let actions_tensor = self.cpu_device.tensor_from_vec(actions.clone(), (len,));
+
+        let neglogp = trace_span!("neglogp").in_scope(|| neglog_probs(actor, actions_tensor));
+
+        let vf = critic.reshape_like(&(len,));
+
+        (vf.as_vec(), actions, neglogp.as_vec())
+    }
+
     pub fn step(&mut self, batch: ExperienceBatch<OBS_SIZE>) -> TrainingStats {
-        let _enter = self.span.enter();
+        let _enter = self.step_span.enter();
         let mut stats = TrainingStats::default();
 
         let batch_size = batch.actions.len();
