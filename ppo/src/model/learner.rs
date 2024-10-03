@@ -72,33 +72,27 @@ impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D
         let _enter = self.infer_span.enter();
         let num_envs = obs.len();
 
-        let obs_tensor: Tensor<(usize, Const<OBS_SIZE>), _, _> = self
-            .cpu_device
-            .tensor_from_vec(obs.as_flattened().to_vec(), (num_envs, Const::<OBS_SIZE>));
-
         let model_device = self.model.device();
+        let cpu_device = &self.cpu_device;
+
+        let obs_tensor = model_device
+            .tensor_from_vec(obs.as_flattened().to_vec(), (num_envs, Const::<OBS_SIZE>));
 
         let forward_span = trace_span!("model.forward");
         let _forward_enter = forward_span.enter();
-        let (critic, actor) = self.model.forward(obs_tensor.to_device(&model_device));
+        let (critic, actor) = self.model.forward(obs_tensor);
         drop(_forward_enter);
 
-        let (critic, actor) = (
-            critic.to_device(&self.cpu_device),
-            actor.to_device(&self.cpu_device),
-        );
+        let (critic, actor) = (critic.to_device(cpu_device), actor.to_device(cpu_device));
 
-        let actor = trace_span!("actor_mask").in_scope(|| match action_mask {
+        let actor = match action_mask {
             Some(m) => {
                 let mask = m.iter().map(|&x| !x as u8 as f32).collect::<Vec<f32>>();
-                let neg_mask = self
-                    .cpu_device
-                    .tensor_from_vec(mask, (1, Const::<NUM_ACTIONS>))
-                    * 500.0;
+                let neg_mask = cpu_device.tensor_from_vec(mask, (1, Const::<NUM_ACTIONS>)) * 500.0;
                 actor - neg_mask
             }
             None => actor,
-        });
+        };
 
         // Get uniform distribution on [0, 1) in the shape of logits
 
@@ -106,7 +100,8 @@ impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D
 
         // Get uniform distribution on [0, 1) in the shape of logits
         let dist = Uniform::new(0f32, 1f32);
-        let u = self.cpu_device.sample_like(actor.shape(), dist);
+        let u =
+            trace_span!("device.sample").in_scope(|| cpu_device.sample_like(actor.shape(), dist));
 
         // Sample 1 action from actor probs
         let logprobs = if randomize {
@@ -120,7 +115,8 @@ impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D
             actions.push(argmax(probs));
         }
 
-        let actions_tensor = self.cpu_device.tensor_from_vec(actions.clone(), (len,));
+        let actions_tensor = trace_span!("actions_tensor")
+            .in_scope(|| cpu_device.tensor_from_vec(actions.clone(), (len,)));
 
         let neglogp = trace_span!("neglogp").in_scope(|| neglog_probs(actor, actions_tensor));
 
