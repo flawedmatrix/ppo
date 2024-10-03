@@ -22,24 +22,6 @@ pub struct TrainingStats {
     pub explained_variance: f32,
 }
 
-pub struct Learner<
-    const OBS_SIZE: usize,
-    const HIDDEN_DIM: usize,
-    const NUM_ACTIONS: usize,
-    D: Device<f32>,
-> {
-    pub model: PolicyNetwork<OBS_SIZE, NUM_ACTIONS, HIDDEN_DIM, f32, D>,
-    pub optim: Adam<PolicyNetwork<OBS_SIZE, NUM_ACTIONS, HIDDEN_DIM, f32, D>, f32, D>,
-
-    pub infer_span: tracing::Span,
-    pub step_span: tracing::Span,
-
-    pub config: ModelConfig,
-
-    pub grads: Gradients<f32, D>,
-    pub cpu_device: Cpu,
-}
-
 fn argmax<T: PartialOrd>(x: &[T]) -> usize {
     x.iter()
         .enumerate()
@@ -53,6 +35,26 @@ fn correct_std(var: f32, n: usize) -> f32 {
     let n = n as f32;
     let corrected_var = var * (n / (n - 1.0));
     corrected_var.sqrt()
+}
+
+pub struct Learner<
+    const OBS_SIZE: usize,
+    const HIDDEN_DIM: usize,
+    const NUM_ACTIONS: usize,
+    D: Device<f32>,
+> {
+    model: PolicyNetwork<OBS_SIZE, NUM_ACTIONS, HIDDEN_DIM, f32, D>,
+    optim: Adam<PolicyNetwork<OBS_SIZE, NUM_ACTIONS, HIDDEN_DIM, f32, D>, f32, D>,
+
+    infer_span: tracing::Span,
+    step_span: tracing::Span,
+
+    config: ModelConfig,
+
+    grads: Gradients<f32, D>,
+    cpu_device: Cpu,
+
+    obs_tensor: Tensor<(usize, Const<OBS_SIZE>), f32, D>,
 }
 
 impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D: Device<f32>>
@@ -83,8 +85,11 @@ impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D
             step_span: trace_span!("learner.step"),
             config: config.model_config,
             cpu_device,
+
+            obs_tensor: device.zeros_like(&(config.num_envs, Const::<OBS_SIZE>)),
         }
     }
+
     /// Runs an inference step of the model with critic and negative log probs
     /// and optionally randomize action selection among the best choices
     ///
@@ -102,11 +107,13 @@ impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D
         let _enter = self.infer_span.enter();
         let num_envs = obs.len();
 
-        let model_device = self.model.device();
         let cpu_device = &self.cpu_device;
 
-        let obs_tensor = model_device
-            .tensor_from_vec(obs.as_flattened().to_vec(), (num_envs, Const::<OBS_SIZE>));
+        let copy_span = trace_span!("copy_obs");
+        let _copy_enter = copy_span.enter();
+        let mut obs_tensor = self.obs_tensor.clone();
+        obs_tensor.copy_from(obs.as_flattened());
+        drop(_copy_enter);
 
         let forward_span = trace_span!("model.forward");
         let _forward_enter = forward_span.enter();
@@ -123,8 +130,6 @@ impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D
             }
             None => actor,
         };
-
-        // Get uniform distribution on [0, 1) in the shape of logits
 
         let len = critic.shape().concrete()[0];
 

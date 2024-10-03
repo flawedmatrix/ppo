@@ -1,10 +1,10 @@
 use dfdx::prelude::*;
 use ndarray::{ArrayView1, Axis};
-use tracing::{info, span, Level};
+use tracing::info;
 
 use crate::{
     common::{ExperienceBuffer, VecRunner},
-    model::{ExperienceBatcher, Learner, ModelConfig, PolicyNetworkConfig, TrainingStats},
+    model::{ExperienceBatcher, Learner, ModelConfig, TrainingStats},
     Environment,
 };
 
