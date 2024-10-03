@@ -8,7 +8,7 @@ use crate::{
     Environment,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct TrainingConfig {
     /// Number of environments to run in parallel for each training pass
     pub num_envs: usize,
@@ -113,6 +113,9 @@ pub fn train<T, P, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_ACTIO
 {
     let mut exp_buf: ExperienceBuffer<NUM_ENVS, OBS_SIZE> = ExperienceBuffer::new(config.num_steps);
 
+    let dev = Dev::default();
+    dev.enable_cache();
+
     // let model_path = model_path.as_ref();
 
     // if model_path.exists() {
@@ -123,32 +126,8 @@ pub fn train<T, P, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_ACTIO
     //     learner.model = learner.model.load_record(record);
     // }
 
-    let dev = Dev::default();
-    dev.enable_cache();
-    let cpu_device = Cpu::default();
-    cpu_device.enable_cache();
-
     info!("Instantiating model with config {config:?}");
-    let model = dev.build_module::<f32>(PolicyNetworkConfig::new(
-        config.model_config.num_hidden_layers,
-    ));
-    let optim = Adam::new(
-        &model,
-        AdamConfig {
-            lr: config.lr,
-            ..Default::default()
-        },
-    );
-    let grads = model.alloc_grads();
-    let mut learner = Learner::<OBS_SIZE, 1024, NUM_ACTIONS, Dev> {
-        model,
-        optim,
-        grads,
-        infer_span: span!(Level::TRACE, "learner.infer"),
-        step_span: span!(Level::TRACE, "learner.step"),
-        config: config.model_config,
-        cpu_device: cpu_device.clone(),
-    };
+    let mut learner = Learner::<OBS_SIZE, 1024, NUM_ACTIONS, _>::new(config, dev);
     info!("Model instantiated.");
 
     // let checkpoint_path = if model_path.is_file() && model_path.parent().is_some_and(|p| p.exists())

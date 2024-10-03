@@ -2,8 +2,11 @@ use dfdx::prelude::*;
 use rand_distr::Uniform;
 use tracing::trace_span;
 
+use crate::TrainingConfig;
+
 use super::data::ExperienceBatch;
 
+use super::PolicyNetworkConfig;
 use super::{
     util::{dist_entropy, neglog_probs},
     ModelConfig, PolicyNetwork,
@@ -55,6 +58,33 @@ fn correct_std(var: f32, n: usize) -> f32 {
 impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D: Device<f32>>
     Learner<OBS_SIZE, HIDDEN_DIM, NUM_ACTIONS, D>
 {
+    pub fn new(config: TrainingConfig, device: D) -> Self {
+        let cpu_device = Cpu::default();
+        cpu_device.enable_cache();
+
+        let model = device.build_module::<f32>(PolicyNetworkConfig::new(
+            config.model_config.num_hidden_layers,
+        ));
+        let optim = Adam::new(
+            &model,
+            AdamConfig {
+                lr: config.lr,
+                ..Default::default()
+            },
+        );
+
+        let grads = model.alloc_grads();
+
+        Self {
+            model,
+            optim,
+            grads,
+            infer_span: trace_span!("learner.infer"),
+            step_span: trace_span!("learner.step"),
+            config: config.model_config,
+            cpu_device,
+        }
+    }
     /// Runs an inference step of the model with critic and negative log probs
     /// and optionally randomize action selection among the best choices
     ///
