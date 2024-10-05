@@ -98,7 +98,6 @@ impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D
         randomize: bool,
     ) -> (Vec<f32>, Vec<usize>, Vec<f32>) {
         let _enter = self.infer_span.enter();
-        let num_envs = obs.len();
 
         let cpu_device = &self.cpu_device;
 
@@ -153,13 +152,15 @@ impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D
         (vf.as_vec(), actions, neglogp.as_vec())
     }
 
-    pub fn step(&mut self, batch: ExperienceBatch<OBS_SIZE, D>) -> TrainingStats {
+    pub fn step(
+        &mut self,
+        batch: ExperienceBatch<OBS_SIZE, D>,
+        collect_stats: bool,
+    ) -> Option<TrainingStats> {
         let _enter = self.step_span.enter();
         let mut stats = TrainingStats::default();
 
         let batch_size = batch.actions.len();
-
-        let model_device = self.model.device();
 
         let input = batch.observations;
 
@@ -173,17 +174,18 @@ impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D
         let critic = critic.reshape_like(&(batch_size,));
         let neglogps = neglog_probs(policy_latent.with_empty_tape(), batch.actions);
 
-        stats.approxkl = trace_span!("approxkl").in_scope(|| -> f32 {
-            let nlp = neglogps.to_device(&self.cpu_device);
-            let nlp_diff = nlp - batch.neglogps.clone();
-            nlp_diff.square().mean().array() * 0.5
-        });
+        if collect_stats {
+            stats.approxkl = trace_span!("approxkl").in_scope(|| -> f32 {
+                let nlp_diff = neglogps.with_empty_tape() - batch.neglogps.clone();
+                nlp_diff.square().mean().to_device(&self.cpu_device).array() * 0.5
+            });
+        }
 
-        let entropy = trace_span!("entropy").in_scope(|| {
-            let entropy = dist_entropy(policy_latent).mean();
-            stats.entropy = entropy.to_device(&self.cpu_device).array();
-            entropy
-        });
+        let entropy = dist_entropy(policy_latent).mean();
+        if collect_stats {
+            stats.entropy = trace_span!("entropy")
+                .in_scope(|| -> f32 { entropy.to_device(&self.cpu_device).array() });
+        }
 
         let values = batch.values;
         let returns = batch.returns;
@@ -194,19 +196,20 @@ impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D
         let vf_losses1 = (critic - returns.clone()).square();
         let vf_losses2 = (values_clipped - returns).square();
         let vf_loss = Tensor::maximum(vf_losses1, vf_losses2).mean() * 0.5;
-        stats.vf_loss =
-            trace_span!("vf_loss").in_scope(|| vf_loss.to_device(&self.cpu_device).array());
+        if collect_stats {
+            stats.vf_loss =
+                trace_span!("vf_loss").in_scope(|| vf_loss.to_device(&self.cpu_device).array());
+        }
 
         let ratio = (-neglogps + batch.neglogps).exp();
 
-        stats.clipfrac = trace_span!("clip_frac").in_scope(|| -> f32 {
-            let r = ratio.to_device(&self.cpu_device);
-            let gt_mask = (r - 1.0)
-                .abs()
-                .gt(self.config.clip_range)
-                .to_dtype::<usize>();
-            gt_mask.sum().array() as f32 / batch_size as f32
-        });
+        if collect_stats {
+            stats.clipfrac = trace_span!("clip_frac").in_scope(|| -> f32 {
+                let r = ratio.to_device(&self.cpu_device);
+                let gt_mask = (r - 1.0).abs().gt(self.config.clip_range).to_dtype::<u32>();
+                gt_mask.sum().array() as f32 / batch_size as f32
+            });
+        }
 
         let neg_advs = -batch.advantages;
 
@@ -215,8 +218,10 @@ impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D
             ratio.clamp(1.0 - self.config.clip_range, 1.0 + self.config.clip_range) * neg_advs;
         let pg_loss = Tensor::maximum(pg_losses1, pg_losses2).mean();
 
-        stats.pg_loss =
-            trace_span!("pg_loss").in_scope(|| pg_loss.to_device(&self.cpu_device).array());
+        if collect_stats {
+            stats.pg_loss =
+                trace_span!("pg_loss").in_scope(|| pg_loss.to_device(&self.cpu_device).array());
+        }
 
         let loss = (pg_loss - (entropy * self.config.entropy_coefficient))
             + (vf_loss * self.config.vf_coefficient);
@@ -229,6 +234,9 @@ impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D
         });
         self.model.zero_grads(&mut self.grads);
 
-        stats
+        if !collect_stats {
+            return None;
+        }
+        Some(stats)
     }
 }

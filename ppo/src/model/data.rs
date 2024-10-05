@@ -78,6 +78,10 @@ impl<const OBS_SIZE: usize, D: Device<f32>> ExperienceBatcher<OBS_SIZE, D> {
             cache,
         }
     }
+
+    pub fn len(&self) -> usize {
+        self.set.actions.len()
+    }
 }
 
 impl<'a, const OBS_SIZE: usize, D: Device<f32>> IntoIterator
@@ -87,7 +91,7 @@ impl<'a, const OBS_SIZE: usize, D: Device<f32>> IntoIterator
     type IntoIter = ExperienceBatcherIterator<'a, OBS_SIZE, D>;
 
     fn into_iter(self) -> Self::IntoIter {
-        let buf_size = self.set.actions.len();
+        let buf_size = self.len();
         let mut indices: Vec<usize> = (0..buf_size).collect();
         let mut rng = rand::thread_rng();
         indices.shuffle(&mut rng);

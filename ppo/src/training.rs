@@ -201,10 +201,15 @@ pub fn train<T, P, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_ACTIO
             cache.clone(),
         );
 
+        let last_batch_idx = exp_batcher.len() / config.batch_size - 1;
+
         let mut stats = TrainingStats::default();
-        for _ in 0..config.num_train_iterations {
-            for batch in exp_batcher.into_iter() {
-                stats = learner.step(batch);
+        for i in 0..config.num_train_iterations {
+            for (j, batch) in exp_batcher.into_iter().enumerate() {
+                let collect_stats = i == config.num_train_iterations - 1 && j == last_batch_idx;
+                if let Some(s) = learner.step(batch, collect_stats) {
+                    stats = s;
+                }
             }
         }
         stats.explained_variance = explained_variance;
