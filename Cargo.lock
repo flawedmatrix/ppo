@@ -150,9 +150,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.1.24"
+version = "1.1.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "812acba72f0a070b003d3697490d2b55b837230ae7c6c6497f05cc2ddbb8d938"
+checksum = "e8d9e0b4957f635b8d3da819d0db5603620467ecf1f692d22a8c2717ce27e6d8"
 dependencies = [
  "shlex",
 ]
@@ -336,7 +336,7 @@ dependencies = [
 [[package]]
 name = "dfdx"
 version = "0.13.0"
-source = "git+https://github.com/flawedmatrix/dfdx.git?branch=fix-latest#9a15660be1d0250e4c929b7da21a9af1166834d0"
+source = "git+https://github.com/flawedmatrix/dfdx.git?branch=fix-latest#08f3bd34caca05bb5d50ff7edc6111236b0868d5"
 dependencies = [
  "dfdx-core",
  "dfdx-derives",
@@ -348,7 +348,7 @@ dependencies = [
 [[package]]
 name = "dfdx-core"
 version = "0.13.0"
-source = "git+https://github.com/flawedmatrix/dfdx.git?branch=fix-latest#9a15660be1d0250e4c929b7da21a9af1166834d0"
+source = "git+https://github.com/flawedmatrix/dfdx.git?branch=fix-latest#08f3bd34caca05bb5d50ff7edc6111236b0868d5"
 dependencies = [
  "cudarc",
  "gemm",
@@ -365,7 +365,7 @@ dependencies = [
 [[package]]
 name = "dfdx-derives"
 version = "0.13.0"
-source = "git+https://github.com/flawedmatrix/dfdx.git?branch=fix-latest#9a15660be1d0250e4c929b7da21a9af1166834d0"
+source = "git+https://github.com/flawedmatrix/dfdx.git?branch=fix-latest#08f3bd34caca05bb5d50ff7edc6111236b0868d5"
 dependencies = [
  "dfdx-core",
  "proc-macro2",
@@ -1384,9 +1384,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.13"
+version = "0.23.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2dabaac7466917e566adb06783a81ca48944c6898a1b08b9374106dd671f4c8"
+checksum = "415d9944693cb90382053259f89fbb077ea730ad7273047ec63b19bc9b160ba8"
 dependencies = [
  "log",
  "once_cell",
