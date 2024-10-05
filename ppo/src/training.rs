@@ -4,7 +4,7 @@ use tracing::info;
 
 use crate::{
     common::{ExperienceBuffer, VecRunner},
-    model::{ExperienceBatcher, Learner, ModelConfig, TrainingStats},
+    model::{ExperienceBatch, ExperienceBatcher, Learner, ModelConfig, TrainingStats},
     Environment,
 };
 
@@ -116,6 +116,16 @@ pub fn train<T, P, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_ACTIO
     let dev = Dev::default();
     dev.enable_cache();
 
+    let batch_size = config.batch_size;
+
+    let cache = ExperienceBatch {
+        observations: dev.zeros_like(&(batch_size, Const::<OBS_SIZE>)),
+        actions: dev.zeros_like(&(batch_size,)),
+        values: dev.zeros_like(&(batch_size,)),
+        neglogps: dev.zeros_like(&(batch_size,)),
+        returns: dev.zeros_like(&(batch_size,)),
+        advantages: dev.zeros_like(&(batch_size,)),
+    };
     // let model_path = model_path.as_ref();
 
     // if model_path.exists() {
@@ -188,6 +198,7 @@ pub fn train<T, P, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_ACTIO
             neglogps,
             returns.view(),
             config.batch_size,
+            cache.clone(),
         );
 
         let mut stats = TrainingStats::default();

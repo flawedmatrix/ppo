@@ -1,23 +1,26 @@
 use dfdx::prelude::*;
 use ndarray::{ArrayView1, ArrayView2};
 use rand::prelude::*;
+use tracing::trace_span;
 
 #[derive(Clone, Debug)]
-pub struct ExperienceBatch<const OBS_SIZE: usize> {
-    pub observations: Tensor<(usize, Const<OBS_SIZE>), f32, Cpu>, // [batch_size, obs_size]
-    pub actions: Tensor<(usize,), usize, Cpu>,                    // [batch_size] (Ints)
-    pub values: Tensor<(usize,), f32, Cpu>,                       // [batch_size]
-    pub neglogps: Tensor<(usize,), f32, Cpu>,                     // [batch_size]
-    pub returns: Tensor<(usize,), f32, Cpu>,                      // [batch_size]
+pub struct ExperienceBatch<const OBS_SIZE: usize, D: Device<f32>> {
+    pub observations: Tensor<(usize, Const<OBS_SIZE>), f32, D>, // [batch_size, obs_size]
+    pub actions: Tensor<(usize,), usize, D>,                    // [batch_size] (Ints)
+    pub values: Tensor<(usize,), f32, D>,                       // [batch_size]
+    pub neglogps: Tensor<(usize,), f32, D>,                     // [batch_size]
+    pub returns: Tensor<(usize,), f32, D>,                      // [batch_size]
+    pub advantages: Tensor<(usize,), f32, D>,                   // [batch_size]
 }
 
-pub struct ExperienceBatcher<const OBS_SIZE: usize> {
-    set: ExperienceBatch<OBS_SIZE>,
+pub struct ExperienceBatcher<const OBS_SIZE: usize, D: Device<f32>> {
+    set: ExperienceBatch<OBS_SIZE, Cpu>,
     batch_size: usize,
     cpu_device: Cpu,
+    cache: ExperienceBatch<OBS_SIZE, D>,
 }
 
-impl<const OBS_SIZE: usize> ExperienceBatcher<OBS_SIZE> {
+impl<const OBS_SIZE: usize, D: Device<f32>> ExperienceBatcher<OBS_SIZE, D> {
     pub fn new(
         observations: ArrayView2<f32>,
         actions: ArrayView1<usize>,
@@ -25,6 +28,7 @@ impl<const OBS_SIZE: usize> ExperienceBatcher<OBS_SIZE> {
         neglogps: ArrayView1<f32>,
         returns: ArrayView1<f32>,
         batch_size: usize,
+        cache: ExperienceBatch<OBS_SIZE, D>,
     ) -> Self {
         let span = tracing::span!(tracing::Level::TRACE, "ExperienceBatcher::new");
         let _guard = span.enter();
@@ -56,24 +60,31 @@ impl<const OBS_SIZE: usize> ExperienceBatcher<OBS_SIZE> {
             returns.as_standard_layout().as_slice().unwrap().to_vec(),
             (buf_size,),
         );
+
+        let advantages = returns.clone() - values.clone();
         let set = ExperienceBatch {
             observations,
             actions,
             values,
             neglogps,
             returns,
+            advantages,
         };
+
         Self {
             set,
             batch_size,
             cpu_device,
+            cache,
         }
     }
 }
 
-impl<'a, const OBS_SIZE: usize> IntoIterator for &'a ExperienceBatcher<OBS_SIZE> {
-    type Item = ExperienceBatch<OBS_SIZE>;
-    type IntoIter = ExperienceBatcherIterator<'a, OBS_SIZE>;
+impl<'a, const OBS_SIZE: usize, D: Device<f32>> IntoIterator
+    for &'a ExperienceBatcher<OBS_SIZE, D>
+{
+    type Item = ExperienceBatch<OBS_SIZE, D>;
+    type IntoIter = ExperienceBatcherIterator<'a, OBS_SIZE, D>;
 
     fn into_iter(self) -> Self::IntoIter {
         let buf_size = self.set.actions.len();
@@ -89,14 +100,16 @@ impl<'a, const OBS_SIZE: usize> IntoIterator for &'a ExperienceBatcher<OBS_SIZE>
     }
 }
 
-pub struct ExperienceBatcherIterator<'a, const OBS_SIZE: usize> {
-    batcher: &'a ExperienceBatcher<OBS_SIZE>,
+pub struct ExperienceBatcherIterator<'a, const OBS_SIZE: usize, D: Device<f32>> {
+    batcher: &'a ExperienceBatcher<OBS_SIZE, D>,
     indices: Vec<usize>,
     iter_idx: usize,
 }
 
-impl<'a, const OBS_SIZE: usize> Iterator for ExperienceBatcherIterator<'a, OBS_SIZE> {
-    type Item = ExperienceBatch<OBS_SIZE>;
+impl<'a, const OBS_SIZE: usize, D: Device<f32>> Iterator
+    for ExperienceBatcherIterator<'a, OBS_SIZE, D>
+{
+    type Item = ExperienceBatch<OBS_SIZE, D>;
     fn next(&mut self) -> Option<Self::Item> {
         let buf_size = self.indices.len();
         if self.iter_idx >= buf_size {
@@ -110,46 +123,87 @@ impl<'a, const OBS_SIZE: usize> Iterator for ExperienceBatcherIterator<'a, OBS_S
         let indices_slice = self.indices[start..end].to_vec();
         let len = indices_slice.len();
 
+        let indices_span = trace_span!("indices_tensor");
+        let _indices_enter = indices_span.enter();
+
         let indices_tensor = self
             .batcher
             .cpu_device
             .tensor_from_vec(indices_slice, (len,));
+        drop(_indices_enter);
 
-        let data = ExperienceBatch {
-            observations: self
-                .batcher
-                .set
-                .observations
-                .clone()
-                .gather(indices_tensor.clone()),
-            actions: self
-                .batcher
-                .set
-                .actions
-                .clone()
-                .gather(indices_tensor.clone()),
-            values: self
-                .batcher
-                .set
-                .values
-                .clone()
-                .gather(indices_tensor.clone()),
-            neglogps: self
-                .batcher
-                .set
-                .neglogps
-                .clone()
-                .gather(indices_tensor.clone()),
-            returns: self
-                .batcher
-                .set
-                .returns
-                .clone()
-                .gather(indices_tensor.clone()),
+        let gather_span = trace_span!("gather");
+        let _gather_enter = gather_span.enter();
+
+        let obs_cpu = {
+            let obs_view = self.batcher.set.observations.clone();
+            obs_view.gather(indices_tensor.clone())
         };
+        let actions_cpu = {
+            let actions_view = self.batcher.set.actions.clone();
+            actions_view.gather(indices_tensor.clone())
+        };
+        let values_cpu = {
+            let values_view = self.batcher.set.values.clone();
+            values_view.gather(indices_tensor.clone())
+        };
+        let neglogps_cpu = {
+            let neglogps_view = self.batcher.set.neglogps.clone();
+            neglogps_view.gather(indices_tensor.clone())
+        };
+        let returns_cpu = {
+            let returns_view = self.batcher.set.returns.clone();
+            returns_view.gather(indices_tensor.clone())
+        };
+        let advantages_cpu = {
+            // Standardize advantages at time of batching
+            let advantages_view = self.batcher.set.advantages.clone();
+            let a = advantages_view.gather(indices_tensor.clone());
+            let a_mean = a.clone().mean().array();
+            let a_std = correct_std(a.clone().var().array(), len);
+            (a - a_mean) / (a_std + 1e-8)
+        };
+        drop(_gather_enter);
 
-        Some(data)
+        let copy_span = trace_span!("copy");
+        let _copy_enter = copy_span.enter();
+
+        let mut observations = self.batcher.cache.observations.clone().slice((0..len, ..));
+        observations.copy_from(&obs_cpu.as_vec());
+
+        let mut actions = self.batcher.cache.actions.clone().slice((0..len,));
+        actions.copy_from(&actions_cpu.as_vec());
+
+        let mut values = self.batcher.cache.values.clone().slice((0..len,));
+        values.copy_from(&values_cpu.as_vec());
+
+        let mut neglogps = self.batcher.cache.neglogps.clone().slice((0..len,));
+        neglogps.copy_from(&neglogps_cpu.as_vec());
+
+        let mut returns = self.batcher.cache.returns.clone().slice((0..len,));
+        returns.copy_from(&returns_cpu.as_vec());
+
+        let mut advantages = self.batcher.cache.advantages.clone().slice((0..len,));
+        advantages.copy_from(&advantages_cpu.as_vec());
+
+        drop(_copy_enter);
+
+        Some(ExperienceBatch {
+            observations,
+            actions,
+            values,
+            neglogps,
+            returns,
+            advantages,
+        })
     }
+}
+
+/// Computes the mean and unbiased standard deviation over all elements in the tensor
+fn correct_std(var: f32, n: usize) -> f32 {
+    let n = n as f32;
+    let corrected_var = var * (n / (n - 1.0));
+    corrected_var.sqrt()
 }
 
 #[cfg(test)]
@@ -177,17 +231,31 @@ mod tests {
             );
         }
 
+        let device = Cpu::default();
+
+        const BATCH_SIZE: usize = 6;
+
+        let cache = ExperienceBatch {
+            observations: device.zeros_like(&(BATCH_SIZE, Const::<OBS_SIZE>)),
+            actions: device.zeros_like(&(BATCH_SIZE,)),
+            values: device.zeros_like(&(BATCH_SIZE,)),
+            neglogps: device.zeros_like(&(BATCH_SIZE,)),
+            returns: device.zeros_like(&(BATCH_SIZE,)),
+            advantages: device.zeros_like(&(BATCH_SIZE,)),
+        };
+
         let (observations, actions, values, neglogps) = exp_buf.training_views();
 
         let returns = exp_buf.returns(&[true, true]);
 
-        let experience_set = ExperienceBatcher::<OBS_SIZE>::new(
+        let experience_set = ExperienceBatcher::<OBS_SIZE, _>::new(
             observations,
             actions,
             values,
             neglogps,
             returns.view(),
-            6,
+            BATCH_SIZE,
+            cache,
         );
 
         let mut seen_obs = HashSet::new();

@@ -30,13 +30,6 @@ fn argmax<T: PartialOrd>(x: &[T]) -> usize {
         .unwrap()
 }
 
-/// Computes the mean and unbiased standard deviation over all elements in the tensor
-fn correct_std(var: f32, n: usize) -> f32 {
-    let n = n as f32;
-    let corrected_var = var * (n / (n - 1.0));
-    corrected_var.sqrt()
-}
-
 pub struct Learner<
     const OBS_SIZE: usize,
     const HIDDEN_DIM: usize,
@@ -160,7 +153,7 @@ impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D
         (vf.as_vec(), actions, neglogp.as_vec())
     }
 
-    pub fn step(&mut self, batch: ExperienceBatch<OBS_SIZE>) -> TrainingStats {
+    pub fn step(&mut self, batch: ExperienceBatch<OBS_SIZE, D>) -> TrainingStats {
         let _enter = self.step_span.enter();
         let mut stats = TrainingStats::default();
 
@@ -168,14 +161,7 @@ impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D
 
         let model_device = self.model.device();
 
-        let advs = trace_span!("advs").in_scope(|| {
-            let a = batch.returns.clone() - batch.values.clone();
-            let a_mean = a.clone().mean().array();
-            let a_std = correct_std(a.clone().var().array(), batch_size);
-            (a - a_mean) / (a_std + 1e-8)
-        });
-
-        let input = batch.observations.to_device(&model_device);
+        let input = batch.observations;
 
         let forward_span = trace_span!("model.forward");
         let _forward_enter = forward_span.enter();
@@ -185,8 +171,7 @@ impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D
         drop(_forward_enter);
 
         let critic = critic.reshape_like(&(batch_size,));
-        let actions = batch.actions.to_device(&model_device);
-        let neglogps = neglog_probs(policy_latent.with_empty_tape(), actions);
+        let neglogps = neglog_probs(policy_latent.with_empty_tape(), batch.actions);
 
         stats.approxkl = trace_span!("approxkl").in_scope(|| -> f32 {
             let nlp = neglogps.to_device(&self.cpu_device);
@@ -200,8 +185,8 @@ impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D
             entropy
         });
 
-        let values = batch.values.to_device(&model_device);
-        let returns = batch.returns.to_device(&model_device);
+        let values = batch.values;
+        let returns = batch.returns;
 
         let values_clipped = (critic.with_empty_tape() - values.clone())
             .clamp(-self.config.clip_range, self.config.clip_range)
@@ -212,8 +197,7 @@ impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D
         stats.vf_loss =
             trace_span!("vf_loss").in_scope(|| vf_loss.to_device(&self.cpu_device).array());
 
-        let nlp_old = batch.neglogps.to_device(&model_device);
-        let ratio = (-neglogps + nlp_old).exp();
+        let ratio = (-neglogps + batch.neglogps).exp();
 
         stats.clipfrac = trace_span!("clip_frac").in_scope(|| -> f32 {
             let r = ratio.to_device(&self.cpu_device);
@@ -224,11 +208,11 @@ impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D
             gt_mask.sum().array() as f32 / batch_size as f32
         });
 
-        let advs = advs.to_device(&model_device);
+        let neg_advs = -batch.advantages;
 
-        let pg_losses1 = ratio.with_empty_tape() * -advs.clone();
+        let pg_losses1 = ratio.with_empty_tape() * neg_advs.clone();
         let pg_losses2 =
-            ratio.clamp(1.0 - self.config.clip_range, 1.0 + self.config.clip_range) * -advs;
+            ratio.clamp(1.0 - self.config.clip_range, 1.0 + self.config.clip_range) * neg_advs;
         let pg_loss = Tensor::maximum(pg_losses1, pg_losses2).mean();
 
         stats.pg_loss =
