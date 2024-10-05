@@ -112,16 +112,20 @@ impl<'a, const OBS_SIZE: usize, D: Device<f32>> Iterator
     type Item = ExperienceBatch<OBS_SIZE, D>;
     fn next(&mut self) -> Option<Self::Item> {
         let buf_size = self.indices.len();
-        if self.iter_idx >= buf_size {
+        if self.batcher.batch_size > buf_size || self.iter_idx >= buf_size {
             return None;
         }
 
-        let start = self.iter_idx;
-        let end = std::cmp::min(start + self.batcher.batch_size, buf_size);
+        let (start, end) = if self.iter_idx + self.batcher.batch_size > buf_size {
+            (buf_size - self.batcher.batch_size, buf_size)
+        } else {
+            (self.iter_idx, self.iter_idx + self.batcher.batch_size)
+        };
         self.iter_idx += self.batcher.batch_size;
 
         let indices_slice = self.indices[start..end].to_vec();
         let len = indices_slice.len();
+        assert_eq!(len, self.batcher.batch_size);
 
         let indices_span = trace_span!("indices_tensor");
         let _indices_enter = indices_span.enter();
@@ -168,22 +172,22 @@ impl<'a, const OBS_SIZE: usize, D: Device<f32>> Iterator
         let copy_span = trace_span!("copy");
         let _copy_enter = copy_span.enter();
 
-        let mut observations = self.batcher.cache.observations.clone().slice((0..len, ..));
+        let mut observations = self.batcher.cache.observations.clone();
         observations.copy_from(&obs_cpu.as_vec());
 
-        let mut actions = self.batcher.cache.actions.clone().slice((0..len,));
+        let mut actions = self.batcher.cache.actions.clone();
         actions.copy_from(&actions_cpu.as_vec());
 
-        let mut values = self.batcher.cache.values.clone().slice((0..len,));
+        let mut values = self.batcher.cache.values.clone();
         values.copy_from(&values_cpu.as_vec());
 
-        let mut neglogps = self.batcher.cache.neglogps.clone().slice((0..len,));
+        let mut neglogps = self.batcher.cache.neglogps.clone();
         neglogps.copy_from(&neglogps_cpu.as_vec());
 
-        let mut returns = self.batcher.cache.returns.clone().slice((0..len,));
+        let mut returns = self.batcher.cache.returns.clone();
         returns.copy_from(&returns_cpu.as_vec());
 
-        let mut advantages = self.batcher.cache.advantages.clone().slice((0..len,));
+        let mut advantages = self.batcher.cache.advantages.clone();
         advantages.copy_from(&advantages_cpu.as_vec());
 
         drop(_copy_enter);
