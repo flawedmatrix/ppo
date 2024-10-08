@@ -1,8 +1,6 @@
 use dfdx::prelude::*;
 use ndarray::{ArrayView1, ArrayView2};
 use rand::prelude::*;
-use tracing::trace_span;
-
 #[derive(Clone, Debug)]
 pub struct ExperienceBatch<const OBS_SIZE: usize, D: Device<f32>> {
     pub observations: Tensor<(usize, Const<OBS_SIZE>), f32, D>, // [batch_size, obs_size]
