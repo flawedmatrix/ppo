@@ -131,17 +131,10 @@ impl<'a, const OBS_SIZE: usize, D: Device<f32>> Iterator
         let len = indices_slice.len();
         assert_eq!(len, self.batcher.batch_size);
 
-        let indices_span = trace_span!("indices_tensor");
-        let _indices_enter = indices_span.enter();
-
         let indices_tensor = self
             .batcher
             .cpu_device
             .tensor_from_vec(indices_slice, (len,));
-        drop(_indices_enter);
-
-        let gather_span = trace_span!("gather");
-        let _gather_enter = gather_span.enter();
 
         let obs_cpu = {
             let obs_view = self.batcher.set.observations.clone();
@@ -171,10 +164,6 @@ impl<'a, const OBS_SIZE: usize, D: Device<f32>> Iterator
             let a_std = correct_std(a.clone().var().array(), len);
             (a - a_mean) / (a_std + 1e-8)
         };
-        drop(_gather_enter);
-
-        let copy_span = trace_span!("copy");
-        let _copy_enter = copy_span.enter();
 
         let mut observations = self.batcher.cache.observations.clone();
         observations.copy_from(&obs_cpu.as_vec());
@@ -193,8 +182,6 @@ impl<'a, const OBS_SIZE: usize, D: Device<f32>> Iterator
 
         let mut advantages = self.batcher.cache.advantages.clone();
         advantages.copy_from(&advantages_cpu.as_vec());
-
-        drop(_copy_enter);
 
         Some(ExperienceBatch {
             observations,

@@ -42,11 +42,3 @@ impl<const OBS_SIZE: usize, const NUM_ACTIONS: usize, const HIDDEN_DIM: usize>
         }
     }
 }
-
-impl<const OBS_SIZE: usize, const NUM_ACTIONS: usize, const HIDDEN_DIM: usize, D: Device<f32>>
-    PolicyNetwork<OBS_SIZE, NUM_ACTIONS, HIDDEN_DIM, f32, D>
-{
-    pub fn device(&self) -> D {
-        self.input.0.weight.device().clone()
-    }
-}

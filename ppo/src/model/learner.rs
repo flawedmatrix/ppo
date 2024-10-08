@@ -101,16 +101,10 @@ impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D
 
         let cpu_device = &self.cpu_device;
 
-        let copy_span = trace_span!("copy_obs");
-        let _copy_enter = copy_span.enter();
         let mut obs_tensor = self.obs_tensor.clone();
         obs_tensor.copy_from(obs.as_flattened());
-        drop(_copy_enter);
 
-        let forward_span = trace_span!("model.forward");
-        let _forward_enter = forward_span.enter();
         let (critic, actor) = self.model.forward(obs_tensor);
-        drop(_forward_enter);
 
         let (critic, actor) = (critic.to_device(cpu_device), actor.to_device(cpu_device));
 
@@ -127,8 +121,7 @@ impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D
 
         // Get uniform distribution on [0, 1) in the shape of logits
         let dist = Uniform::new(0f32, 1f32);
-        let u =
-            trace_span!("device.sample").in_scope(|| cpu_device.sample_like(actor.shape(), dist));
+        let u = cpu_device.sample_like(actor.shape(), dist);
 
         // Sample 1 action from actor probs
         let logprobs = if randomize {
@@ -142,10 +135,9 @@ impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D
             actions.push(argmax(probs));
         }
 
-        let actions_tensor = trace_span!("actions_tensor")
-            .in_scope(|| cpu_device.tensor_from_vec(actions.clone(), (len,)));
+        let actions_tensor = cpu_device.tensor_from_vec(actions.clone(), (len,));
 
-        let neglogp = trace_span!("neglogp").in_scope(|| neglog_probs(actor, actions_tensor));
+        let neglogp = neglog_probs(actor, actions_tensor);
 
         let vf = critic.reshape_like(&(len,));
 
@@ -164,12 +156,7 @@ impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D
 
         let input = batch.observations;
 
-        let forward_span = trace_span!("model.forward");
-        let _forward_enter = forward_span.enter();
-
         let (critic, policy_latent) = self.model.forward(input.trace(self.grads.clone()));
-
-        drop(_forward_enter);
 
         let critic = critic.reshape_like(&(batch_size,));
         let neglogps = neglog_probs(policy_latent.with_empty_tape(), batch.actions);
@@ -226,12 +213,10 @@ impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D
         let loss = (pg_loss - (entropy * self.config.entropy_coefficient))
             + (vf_loss * self.config.vf_coefficient);
 
-        self.grads = trace_span!("loss.backward").in_scope(|| loss.backward());
-        trace_span!("optim.step").in_scope(|| {
-            self.optim
-                .update(&mut self.model, &self.grads)
-                .expect("Unused params")
-        });
+        self.grads = loss.backward();
+        self.optim
+            .update(&mut self.model, &self.grads)
+            .expect("Unused params");
         self.model.zero_grads(&mut self.grads);
 
         if !collect_stats {
