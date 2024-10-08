@@ -8,14 +8,16 @@ pub struct OrthoLinearConfig<I: Dim, O: Dim> {
     pub out: O,
 
     pub ortho_gain: f32,
+    pub require_init: bool,
 }
 
 impl<I: Dim, O: Dim> OrthoLinearConfig<I, O> {
-    pub fn new(inp: I, out: O, ortho_gain: f32) -> Self {
+    pub fn new(inp: I, out: O, ortho_gain: f32, require_init: bool) -> Self {
         Self {
             inp,
             out,
             ortho_gain,
+            require_init,
         }
     }
 }
@@ -31,6 +33,7 @@ impl<I: Dim, O: Dim, E: Dtype, D: Device<E>> BuildOnDevice<E, D> for OrthoLinear
             weight: device.try_zeros_like(&(self.out, self.inp))?,
             bias: device.try_zeros_like(&(self.out,))?,
             ortho_gain: self.ortho_gain,
+            require_init: self.require_init,
         })
     }
 }
@@ -45,6 +48,7 @@ pub struct OrthoLinear<I: Dim, O: Dim, Elem: Dtype, Dev: Device<Elem>> {
     pub bias: Tensor<(O,), Elem, Dev>,
 
     pub ortho_gain: f32,
+    pub require_init: bool,
 }
 
 impl<const I: usize, const O: usize, E: Dtype, D> ResetParams<E, D>
@@ -53,6 +57,9 @@ where
     D: Device<E> + Device<f32>,
 {
     fn try_reset_params(&mut self) -> Result<(), dfdx::tensor::Error> {
+        if !self.require_init {
+            return Ok(());
+        }
         self.weight = ortho_init(self.ortho_gain, self.weight.device().clone()).try_to_dtype()?;
         Ok(())
     }

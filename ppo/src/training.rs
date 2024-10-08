@@ -126,35 +126,32 @@ pub fn train<T, P, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_ACTIO
         returns: dev.zeros_like(&(batch_size,)),
         advantages: dev.zeros_like(&(batch_size,)),
     };
-    // let model_path = model_path.as_ref();
-
-    // if model_path.exists() {
-    //     info!("Loading checkpoint from path {:?}", model_path);
-    //     let record = recorder
-    //         .load(model_path.to_path_buf(), &device)
-    //         .expect("Should be able to load the model weights from the provided file");
-    //     learner.model = learner.model.load_record(record);
-    // }
+    let model_path = model_path.as_ref();
 
     info!("Instantiating model with config {config:?}");
-    let mut learner = Learner::<OBS_SIZE, 1024, NUM_ACTIONS, _>::new(config, dev);
+    let mut learner = if model_path.exists() {
+        info!("Loading checkpoint from path {:?}", model_path);
+        Learner::<OBS_SIZE, 1024, NUM_ACTIONS, _>::load_from_file(model_path, config, dev)
+    } else {
+        Learner::<OBS_SIZE, 1024, NUM_ACTIONS, _>::new(config, dev)
+    };
     info!("Model instantiated.");
 
-    // let checkpoint_path = if model_path.is_file() && model_path.parent().is_some_and(|p| p.exists())
-    // {
-    //     info!(
-    //         "Storing checkpoints in parent path of model : {}",
-    //         model_path.parent().unwrap().display()
-    //     );
-    //     model_path.parent().unwrap().to_owned()
-    // } else if model_path.is_dir() && model_path.exists() {
-    //     info!("Storing checkpoints in path: {}", model_path.display());
-    //     model_path.to_owned()
-    // } else {
-    //     info!("Model path does not exist. Storing checkpoints in $CWD/checkpoints/");
-    //     let cwd = std::env::current_dir().expect("Could not access current working directory.");
-    //     cwd.join("checkpoints/")
-    // };
+    let checkpoint_path = if model_path.is_file() && model_path.parent().is_some_and(|p| p.exists())
+    {
+        info!(
+            "Storing checkpoints in parent path of model : {}",
+            model_path.parent().unwrap().display()
+        );
+        model_path.parent().unwrap().to_owned()
+    } else if model_path.is_dir() && model_path.exists() {
+        info!("Storing checkpoints in path: {}", model_path.display());
+        model_path.to_owned()
+    } else {
+        info!("Model path does not exist. Storing checkpoints in $CWD/checkpoints/");
+        let cwd = std::env::current_dir().expect("Could not access current working directory.");
+        cwd.join("checkpoints/")
+    };
 
     let mut runner: VecRunner<T, OBS_SIZE, NUM_ACTIONS> = VecRunner::new(init_env_state, NUM_ENVS);
 
@@ -225,12 +222,7 @@ pub fn train<T, P, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_ACTIO
                 "New best score: Learning update {}, Num Eps {}, Avg Ep len {}, Avg Ep Score {}, Loss {:?}",
                 i, num_eps, avg_ep_len, avg_score, stats
             );
-            info!("Skipping file save for now");
-            // learner
-            //     .model
-            //     .clone()
-            //     .save_file(checkpoint_path.join(format!("best_so_far_{i}")), &recorder)
-            //     .expect("Failed to save high score checkpoint");
+            learner.save_to_file(checkpoint_path.join(format!("best_so_far_{i}.safetensors")));
             high_score = avg_score;
         }
         if i % 10 == 0 {
@@ -240,12 +232,7 @@ pub fn train<T, P, const NUM_ENVS: usize, const OBS_SIZE: usize, const NUM_ACTIO
             );
         }
         if i % 100 == 0 || i == config.num_epochs {
-            info!("Skipping file save for now");
-            // learner
-            //     .model
-            //     .clone()
-            //     .save_file(checkpoint_path.join(format!("checkpoint_{i}")), &recorder)
-            //     .expect("Failed to save checkpoint");
+            learner.save_to_file(checkpoint_path.join(format!("checkpoint_{i}.safetensors")));
         }
     }
 }

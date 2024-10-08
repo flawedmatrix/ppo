@@ -54,11 +54,16 @@ impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D
     Learner<OBS_SIZE, HIDDEN_DIM, NUM_ACTIONS, D>
 {
     pub fn new(config: TrainingConfig, device: D) -> Self {
+        Self::new_learner(config, device, true)
+    }
+
+    fn new_learner(config: TrainingConfig, device: D, require_init: bool) -> Self {
         let cpu_device = Cpu::default();
         cpu_device.enable_cache();
 
         let model = device.build_module::<f32>(PolicyNetworkConfig::new(
             config.model_config.num_hidden_layers,
+            require_init,
         ));
         let optim = Adam::new(
             &model,
@@ -81,6 +86,19 @@ impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D
 
             obs_tensor: device.zeros_like(&(config.num_envs, Const::<OBS_SIZE>)),
         }
+    }
+
+    pub fn load_from_file<P: AsRef<std::path::Path>>(
+        path: P,
+        config: TrainingConfig,
+        device: D,
+    ) -> Self {
+        let mut learner = Self::new_learner(config, device, false);
+        learner
+            .model
+            .load_safetensors(path)
+            .expect("Failed to load model");
+        learner
     }
 
     /// Runs an inference step of the model with critic and negative log probs
@@ -223,5 +241,11 @@ impl<const OBS_SIZE: usize, const HIDDEN_DIM: usize, const NUM_ACTIONS: usize, D
             return None;
         }
         Some(stats)
+    }
+
+    pub fn save_to_file<P: AsRef<std::path::Path>>(&self, path: P) {
+        self.model
+            .save_safetensors(path)
+            .expect("Failed to save model");
     }
 }
