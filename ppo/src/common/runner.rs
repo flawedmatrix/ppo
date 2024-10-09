@@ -66,7 +66,6 @@ where
 
     // actions should be a Vec of size num_envs
     pub fn step(&mut self, actions: &[usize]) -> VecRunStep {
-        let mut next_states: Vec<[f32; OBS_SIZE]> = Vec::new();
         let mut rewards: Vec<f32> = Vec::new();
         let mut dones: Vec<bool> = Vec::new();
 
@@ -103,8 +102,6 @@ where
                 final_step_nums.push(env.step_num());
                 *env = self.init_state;
             }
-
-            next_states.push(env.as_vector());
         }
         VecRunStep {
             rewards: self.normalized_rewards(rewards, dones.clone()),
