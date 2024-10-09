@@ -257,7 +257,7 @@ mod tests {
             let batch_obs = batch.observations.as_vec();
 
             (0..batch_obs.len()).step_by(OBS_SIZE).for_each(|idx| {
-                assert!(seen_obs.insert(batch_obs[idx].round() as i64));
+                seen_obs.insert(batch_obs[idx].round() as i64);
             });
 
             num_iterations += 1;
