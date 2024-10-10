@@ -263,9 +263,9 @@ dependencies = [
 
 [[package]]
 name = "cudarc"
-version = "0.9.15"
+version = "0.9.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1871a911a2b9a3f66a285896a719159985683bf9903aa2cf89e0c9f53e14552"
+checksum = "ea3391c4f99552525128ee86781e0c2cc48643ca0a69a37d59a078f42ace6b67"
 
 [[package]]
 name = "darling"
@@ -336,7 +336,7 @@ dependencies = [
 [[package]]
 name = "dfdx"
 version = "0.13.0"
-source = "git+https://github.com/flawedmatrix/dfdx.git?branch=fix-latest#12c75bcd815d76654c9d7a8cc0c836e0fc96cd4c"
+source = "git+https://github.com/flawedmatrix/dfdx.git?branch=performance#ad32612a91af916f007714d7ffe9f5fda3fc3fe2"
 dependencies = [
  "dfdx-core",
  "dfdx-derives",
@@ -348,7 +348,7 @@ dependencies = [
 [[package]]
 name = "dfdx-core"
 version = "0.13.0"
-source = "git+https://github.com/flawedmatrix/dfdx.git?branch=fix-latest#12c75bcd815d76654c9d7a8cc0c836e0fc96cd4c"
+source = "git+https://github.com/flawedmatrix/dfdx.git?branch=performance#ad32612a91af916f007714d7ffe9f5fda3fc3fe2"
 dependencies = [
  "cudarc",
  "gemm",
@@ -365,7 +365,7 @@ dependencies = [
 [[package]]
 name = "dfdx-derives"
 version = "0.13.0"
-source = "git+https://github.com/flawedmatrix/dfdx.git?branch=fix-latest#12c75bcd815d76654c9d7a8cc0c836e0fc96cd4c"
+source = "git+https://github.com/flawedmatrix/dfdx.git?branch=performance#ad32612a91af916f007714d7ffe9f5fda3fc3fe2"
 dependencies = [
  "dfdx-core",
  "proc-macro2",

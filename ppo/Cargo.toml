@@ -27,7 +27,7 @@ rand_distr = "0.4.3"
 linfa-linalg = "0.1.0"
 ndarray-linalg = { version = "0.16", optional = true }
 tracing = "0.1"
-dfdx = { git = "https://github.com/flawedmatrix/dfdx.git", branch = "fix-latest", features = [
+dfdx = { git = "https://github.com/flawedmatrix/dfdx.git", branch = "performance", features = [
     "safetensors",
 ] }
 
