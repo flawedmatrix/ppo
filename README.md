@@ -3,6 +3,9 @@
 Optimized implementation of the Proximal Policy Optimization (PPO) algorithm for
 Rust.
 
-Ported to [Candle](https://github.com/huggingface/candle/) from a version written with
-[dfdx](https://github.com/coreylowman/dfdx), so the code is in a fairly unstable
-state.
+For performance reasons, written with a modified version of
+[dfdx](https://github.com/coreylowman/dfdx), using an older version of cudarc,
+so the code is in a fairly unstable state.
+
+Will rewrite with latest libraries if performance can match this current
+implementation.
